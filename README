@@ -1,72 +1,86 @@
-AI Web Annotator
+AI WEB ANNOTATOR(1)
 
+NAME
 
-	Description
+    ai-web-annotator - annotate web pages and export context for AI tools
 
-Chrome Extension (Manifest V3) to interactively annotate any web page
-and export structured DOM context, screenshots, and prompts for AI.
+SYNOPSIS
 
+    AI Web Annotator is used through its Chrome extension interface.
 
-	Requirements
+DESCRIPTION
 
-This project requires Node.js 20 or later, npm, and Google Chrome (or
-any Chromium-based web browser). Docker is optional for containerized
-development.
+    AI Web Annotator is a Chrome extension for interactively annotating
+    elements on web pages.
 
+    Selected elements can be associated with comments and numbered
+    annotations. When an annotation session is complete, the extension
+    exports an annotated screenshot, structured DOM information, and a
+    formatted prompt for use with AI tools.
 
-	Installation
+REQUIREMENTS
 
-Install dependencies and build the extension:
+    Node.js 20 or later
+    npm
+    Google Chrome or another Chromium-based browser
 
-    npm install
-    npm run build
+    Docker is optional.
 
-Load the extension into Google Chrome:
+INSTALLATION
 
-1. Open Google Chrome and navigate to chrome://extensions/
-2. Enable "Developer mode" in the top-right corner.
-3. Click "Load unpacked" and select the dist/ directory.
+    Install dependencies:
 
+        npm install
 
-	Usage
+    Build the extension:
 
-1. Click the extension icon on any page to freeze interactions.
-2. Click elements to place numbered badges and enter comments.
-3. Click "Terminer & Exporter" in the HUD:
-   - Downloads a screenshot (.png) with numbered badges.
-   - Downloads structured DOM context (.json) with selectors and XPath.
-   - Copies a formatted AI prompt to clipboard.
+        npm run build
 
+    Open chrome://extensions/ in Chrome, enable Developer mode, select
+    Load unpacked, and choose the dist/ directory.
 
-	Testing
+USAGE
 
-Run the automated test suite with the following command:
+    Open a web page and click the AI Web Annotator extension icon.
 
-    npm test
+    Select elements on the page to create numbered annotations and add
+    comments.
 
-All tests should pass before changes are submitted.
+    When finished, select "Terminer & Exporter".
 
+    The extension exports:
 
-	Development
+        An annotated PNG screenshot.
+        Structured DOM context in JSON format.
+        CSS selectors and XPath expressions.
+        A formatted AI prompt copied to the clipboard.
 
-To run the development build with automatic file watching:
+DEVELOPMENT
 
-    npm run dev
+    Start development mode:
 
-To create a distributable zip archive:
+        npm run dev
 
-    npm run package
+    Create a distributable archive:
 
-Or run the watch mode inside Docker:
+        npm run package
 
-    docker compose up
+    Run using Docker:
 
+        docker compose up
 
-	License
+TESTING
 
-This project is distributed under the MIT License.
+    Run the test suite:
 
+        npm test
 
-	Contact
+    All tests should pass before submitting changes.
 
-For questions or bug reports, open an issue in the project repository.
+LICENSE
+
+    MIT License
+
+SEE ALSO
+
+    node(1), npm(1), docker(1)
