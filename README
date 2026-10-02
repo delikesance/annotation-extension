@@ -1,40 +1,72 @@
-	AI WEB ANNOTATOR
-	================
-
-	DESCRIPTION
-	-----------
-Chrome Extension (Manifest V3) to interactively annotate web pages and
-export structured DOM context, screenshots, and prompts for AI.
+AI Web Annotator
 
 
-	INSTALLATION
-	------------
-1. Build the extension:
-     npm run build
+	Description
 
-2. In Google Chrome, go to:
-     chrome://extensions/
-
-3. Enable "Developer mode" (top right toggle).
-4. Click "Load unpacked" and select the dist/ directory.
+Chrome Extension (Manifest V3) to interactively annotate any web page
+and export structured DOM context, screenshots, and prompts for AI.
 
 
-	USAGE
-	-----
+	Requirements
+
+This project requires Node.js 20 or later, npm, and Google Chrome (or
+any Chromium-based web browser). Docker is optional for containerized
+development.
+
+
+	Installation
+
+Install dependencies and build the extension:
+
+    npm install
+    npm run build
+
+Load the extension into Google Chrome:
+
+1. Open Google Chrome and navigate to chrome://extensions/
+2. Enable "Developer mode" in the top-right corner.
+3. Click "Load unpacked" and select the dist/ directory.
+
+
+	Usage
+
 1. Click the extension icon on any page to freeze interactions.
-2. Click any element to add a numbered badge and enter notes.
+2. Click elements to place numbered badges and enter comments.
 3. Click "Terminer & Exporter" in the HUD:
-   - Downloads page screenshot (.png) with numbered badges.
+   - Downloads a screenshot (.png) with numbered badges.
    - Downloads structured DOM context (.json) with selectors and XPath.
-   - Copies ready-to-use LLM prompt to clipboard.
+   - Copies a formatted AI prompt to clipboard.
 
 
-	COMMANDS
-	--------
-npm install       Install dependencies
-npm run build     Build to dist/
-npm run dev       Development watch mode
-npm test          Run unit tests
-npm run package   Build and create release zip in dist/
+	Testing
 
-docker compose up Dev watch mode in Docker
+Run the automated test suite with the following command:
+
+    npm test
+
+All tests should pass before changes are submitted.
+
+
+	Development
+
+To run the development build with automatic file watching:
+
+    npm run dev
+
+To create a distributable zip archive:
+
+    npm run package
+
+Or run the watch mode inside Docker:
+
+    docker compose up
+
+
+	License
+
+This project is distributed under the MIT License.
+
+
+	Contact
+
+For questions or bug reports, open an issue in the project repository.
