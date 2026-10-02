@@ -36,3 +36,39 @@ jobs:
         with:
           name: ai-web-annotator-build
           path: dist/*.zip
+
+      - name: Publish Forgejo Release Asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "Publishing release package for $TAG_NAME..."
+
+          API_URL="${GITHUB_API_URL:-${GITHUB_SERVER_URL}/api/v1}"
+          echo "Using API URL: $API_URL"
+
+          # Create release if it doesn't already exist
+          RELEASE_RESP=$(curl -s -X POST "$API_URL/repos/${GITHUB_REPOSITORY}/releases" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\": \"$TAG_NAME\", \"name\": \"AI Web Annotator $TAG_NAME\", \"body\": \"### Extension Chrome AI Web Annotator $TAG_NAME\n\nArchive zip prête à être installée en mode développeur dans Google Chrome.\", \"draft\": false, \"prerelease\": false}")
+
+          RELEASE_ID=$(echo "$RELEASE_RESP" | grep -o '"id":[0-9]*' | head -n 1 | cut -d: -f2)
+
+          if [ -z "$RELEASE_ID" ]; then
+            RELEASE_RESP=$(curl -s "$API_URL/repos/${GITHUB_REPOSITORY}/releases/tags/$TAG_NAME" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}")
+            RELEASE_ID=$(echo "$RELEASE_RESP" | grep -o '"id":[0-9]*' | head -n 1 | cut -d: -f2)
+          fi
+
+          echo "Found/Created Release ID: $RELEASE_ID"
+
+          ZIP_FILE=$(ls dist/*.zip | head -n 1)
+          ZIP_NAME=$(basename "$ZIP_FILE")
+
+          echo "Uploading $ZIP_NAME to release..."
+          curl -s -X POST "$API_URL/repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets?name=$ZIP_NAME" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: multipart/form-data" \
+            -F "attachment=@$ZIP_FILE"
+
+          echo "Release package $ZIP_NAME successfully published!"
