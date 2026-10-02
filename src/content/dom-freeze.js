@@ -92,7 +92,9 @@ class DOMFreezeManager {
     for (const evt of this.stoppedMouseEvents) {
       window.addEventListener(evt, this.boundMouseHandler, true);
     }
-    window.addEventListener('keydown', this.boundKeyHandler, true);
+    for (const evt of ['keydown', 'keyup', 'keypress']) {
+      window.addEventListener(evt, this.boundKeyHandler, true);
+    }
 
     document.documentElement.classList.add('ai-annotator-page-frozen');
     console.log('[AI Web Annotator] Page interactions frozen.');
@@ -108,7 +110,9 @@ class DOMFreezeManager {
     for (const evt of this.stoppedMouseEvents) {
       window.removeEventListener(evt, this.boundMouseHandler, true);
     }
-    window.removeEventListener('keydown', this.boundKeyHandler, true);
+    for (const evt of ['keydown', 'keyup', 'keypress']) {
+      window.removeEventListener(evt, this.boundKeyHandler, true);
+    }
 
     document.documentElement.classList.remove('ai-annotator-page-frozen');
     console.log('[AI Web Annotator] Page interactions un-frozen.');

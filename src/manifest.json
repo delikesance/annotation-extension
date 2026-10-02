@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Web Annotator",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Capturez, annotez interactivement n'importe quelle page web et exportez un contexte structuré pour l'IA.",
   "action": {
     "default_title": "Activer le mode annotation (Freeze)",
@@ -19,7 +19,8 @@
     "activeTab",
     "scripting",
     "downloads",
-    "storage"
+    "storage",
+    "clipboardWrite"
   ],
   "icons": {
     "16": "icons/icon-16.png",
