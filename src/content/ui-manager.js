@@ -28,7 +28,14 @@ class AnnotatorUIManager {
 
     this.host = document.createElement('div');
     this.host.id = 'ai-web-annotator-root';
-    document.body.appendChild(this.host);
+    this.host.style.position = 'absolute';
+    this.host.style.top = '0';
+    this.host.style.left = '0';
+    this.host.style.width = '100%';
+    this.host.style.height = '100%';
+    this.host.style.pointerEvents = 'none';
+    this.host.style.zIndex = '2147483647';
+    (document.body || document.documentElement).appendChild(this.host);
 
     this.shadow = this.host.attachShadow({ mode: 'open' });
 
@@ -192,9 +199,21 @@ class AnnotatorUIManager {
       return;
     }
 
-    if (!this.hoveredElement) return;
+    // Determine target element under cursor (fallback to elementsFromPoint or e.target if hoveredElement is not set)
+    let target = this.hoveredElement;
+    if (!target) {
+      const elements = document.elementsFromPoint ? document.elementsFromPoint(e.clientX, e.clientY) : [];
+      target = elements.find(el => el !== this.host && !this.host.contains(el));
+      if (!target && e.target && e.target !== this.host && !this.host.contains(e.target)) {
+        target = e.target;
+      }
+    }
 
-    this.createAnnotationPoint(this.hoveredElement);
+    if (!target || target === document.body || target === document.documentElement) {
+      return;
+    }
+
+    this.createAnnotationPoint(target);
   }
 
   onKeyDown(e) {
@@ -209,7 +228,7 @@ class AnnotatorUIManager {
 
   createAnnotationPoint(targetElement) {
     const nextIndex = this.annotations.length + 1;
-    const rect = targetElement.getBoundingClientRect();
+    const rect = targetElement.getBoundingClientRect ? targetElement.getBoundingClientRect() : { top: 0, left: 0, width: 0, height: 0 };
     const scrollX = window.scrollX || window.pageXOffset || 0;
     const scrollY = window.scrollY || window.pageYOffset || 0;
 
@@ -225,12 +244,14 @@ class AnnotatorUIManager {
     boxEl.style.height = `${rect.height}px`;
     this.shadow.appendChild(boxEl);
 
-    // 2. Numbered Badge
+    // 2. Numbered Badge (clamp so it does not overflow top-left)
     const badgeEl = document.createElement('div');
     badgeEl.className = 'ai-annotation-badge';
     badgeEl.textContent = nextIndex;
-    badgeEl.style.top = `${rect.top + scrollY}px`;
-    badgeEl.style.left = `${rect.left + scrollX}px`;
+    const badgeTop = Math.max(16, rect.top + scrollY);
+    const badgeLeft = Math.max(16, rect.left + scrollX);
+    badgeEl.style.top = `${badgeTop}px`;
+    badgeEl.style.left = `${badgeLeft}px`;
     badgeEl.title = `Annotation #${nextIndex} (Cliquer pour modifier)`;
     this.shadow.appendChild(badgeEl);
 
@@ -253,25 +274,36 @@ class AnnotatorUIManager {
   }
 
   openCommentModal(annotation, isNew = false) {
-    if (this.activeCommentCard) {
+    // If currently editing another annotation that was new and unsaved, cancel it first
+    if (this.isEditingComment && this.currentEditingAnnotation && this.currentEditingAnnotation !== annotation) {
+      this.cancelActiveComment();
+    } else if (this.activeCommentCard) {
       this.activeCommentCard.remove();
     }
 
     this.isEditingComment = true;
-    const rect = annotation.element.getBoundingClientRect();
+    const rect = annotation.element.getBoundingClientRect ? annotation.element.getBoundingClientRect() : { top: 0, left: 0, width: 0, height: 0 };
     const scrollX = window.scrollX || window.pageXOffset || 0;
     const scrollY = window.scrollY || window.pageYOffset || 0;
 
     const card = document.createElement('div');
     card.className = 'ai-comment-card';
 
+    const viewportWidth = window.innerWidth || 1024;
+    const viewportHeight = window.innerHeight || 768;
+
     // Position popover near badge
     let modalTop = rect.top + scrollY + 24;
     let modalLeft = rect.left + scrollX + 16;
 
-    // Boundary check so modal stays on screen
-    if (modalLeft + 330 > window.innerWidth) {
-      modalLeft = Math.max(16, window.innerWidth - 340);
+    // Boundary check so modal stays on screen horizontally
+    if (rect.left + 340 > viewportWidth) {
+      modalLeft = Math.max(scrollX + 16, scrollX + viewportWidth - 340);
+    }
+
+    // Boundary check vertically: if bottom is cut off, display above the element
+    if (rect.top + 200 > viewportHeight && rect.top > 160) {
+      modalTop = Math.max(scrollY + 16, rect.top + scrollY - 170);
     }
 
     card.style.top = `${modalTop}px`;

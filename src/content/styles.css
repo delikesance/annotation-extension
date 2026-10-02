@@ -10,6 +10,7 @@ html.ai-annotator-page-frozen * {
 }
 
 /* Base Shadow DOM Container */
+:host,
 #ai-web-annotator-root {
   all: initial;
   position: absolute;

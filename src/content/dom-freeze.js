@@ -7,27 +7,34 @@
 class DOMFreezeManager {
   constructor() {
     this.isActive = false;
+    // Events to completely suppress on the webpage (prevent default + stop propagation)
     this.interceptedEvents = [
-      'click',
+      'submit',
+      'contextmenu',
       'dblclick',
+      'dragstart'
+    ];
+    // Mouse events to stop propagation to webpage handlers without preventing click generation
+    this.stoppedMouseEvents = [
       'mousedown',
       'mouseup',
       'pointerdown',
-      'pointerup',
-      'contextmenu',
-      'submit'
+      'pointerup'
     ];
     this.boundHandler = this.handleEvent.bind(this);
+    this.boundMouseHandler = this.handleMouseEvent.bind(this);
     this.boundKeyHandler = this.handleKeydown.bind(this);
   }
 
   isExtensionEvent(event) {
     const root = document.getElementById('ai-web-annotator-root');
-    if (!root) return false;
-
-    // Check composedPath for Shadow DOM traversal
     const path = event.composedPath ? event.composedPath() : [];
-    return path.includes(root);
+    if (root && path.includes(root)) return true;
+    if (event.target) {
+      if (root && root.contains(event.target)) return true;
+      if (typeof event.target.className === 'string' && event.target.className.includes('ai-')) return true;
+    }
+    return false;
   }
 
   handleEvent(event) {
@@ -38,10 +45,22 @@ class DOMFreezeManager {
       return;
     }
 
-    // Freeze page: stop all propagation and default browser actions (like link navigation or form submit)
+    // Freeze page: stop all propagation and default browser actions (like form submit or contextmenu)
     event.preventDefault();
     event.stopPropagation();
-    event.stopImmediatePropagation();
+  }
+
+  handleMouseEvent(event) {
+    if (!this.isActive) return;
+
+    // Allow interaction if it originates from our extension Shadow DOM UI
+    if (this.isExtensionEvent(event)) {
+      return;
+    }
+
+    // Stop propagation so page scripts do not catch mousedown/pointerdown
+    // Note: Do NOT call preventDefault() here, otherwise Chromium suppresses 'click' events.
+    event.stopPropagation();
   }
 
   handleKeydown(event) {
@@ -60,7 +79,6 @@ class DOMFreezeManager {
     if (event.key !== 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      event.stopImmediatePropagation();
     }
   }
 
@@ -70,6 +88,9 @@ class DOMFreezeManager {
 
     for (const evt of this.interceptedEvents) {
       window.addEventListener(evt, this.boundHandler, true);
+    }
+    for (const evt of this.stoppedMouseEvents) {
+      window.addEventListener(evt, this.boundMouseHandler, true);
     }
     window.addEventListener('keydown', this.boundKeyHandler, true);
 
@@ -83,6 +104,9 @@ class DOMFreezeManager {
 
     for (const evt of this.interceptedEvents) {
       window.removeEventListener(evt, this.boundHandler, true);
+    }
+    for (const evt of this.stoppedMouseEvents) {
+      window.removeEventListener(evt, this.boundMouseHandler, true);
     }
     window.removeEventListener('keydown', this.boundKeyHandler, true);
 
