@@ -464,7 +464,7 @@ class AnnotatorUIManager {
       const payload = {
         meta: {
           generator: 'AI Web Annotator (Manifest V3)',
-          version: '1.0.0',
+          version: '1.0.1',
           pageUrl: window.location.href,
           pageTitle: document.title,
           timestamp: new Date().toISOString(),
