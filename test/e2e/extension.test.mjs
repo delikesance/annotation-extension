@@ -318,3 +318,51 @@ test('15. a newer release shows the update banner in the panel and its button op
   await tab.waitForLoadState('domcontentloaded');
   assert.match(tab.url(), /\/download\.zip$/);
 });
+
+test('16. panels shown/hidden by class toggles (no node added): each panel gets its own screen and its pins sit on the right elements', async () => {
+  await env.page.goto(env.url, { waitUntil: 'load' });
+  await env.injectAndToggle();
+  await panel.locator('#status-text', { hasText: /Navigation libre|Mode annotation/ }).waitFor();
+  if ((await panel.locator('#status-text').innerText()) === 'Mode annotation') await panel.click('#btn-annotate');
+
+  // panel 1: open it (free navigation), annotate its button
+  await env.page.click('#toggle-p1');
+  await env.page.locator('#panel1.open').waitFor();
+  await panel.click('#btn-annotate');
+  await env.page.hover('#p1-action');
+  await env.page.click('#p1-action');
+  await panel.locator('.editor textarea').fill('Le bouton du premier panneau est trop petit, passer à 48px');
+  await panel.click('#editor-save');
+  await panel.locator('.item', { hasText: 'premier panneau' }).waitFor();
+  await env.page.waitForTimeout(500); // screenshot of screen 1
+
+  // leave annotate mode, open panel 2 (panel 1 hidden by a class change only)
+  await panel.click('#btn-annotate');
+  await panel.locator('#status-text', { hasText: 'Navigation libre' }).waitFor();
+  await env.page.click('#toggle-p2');
+  await panel.locator('#list .note', { hasText: '1 écran déjà capturé' }).waitFor({ timeout: 8000 });
+  assert.equal(await overlayCount(), 0, 'screen 1 pins are gone');
+
+  // annotate panel 2
+  await panel.click('#btn-annotate');
+  await env.page.hover('#p2-action');
+  await env.page.click('#p2-action');
+  await panel.locator('.editor textarea').fill('Ce bouton du second panneau doit être vert');
+  await panel.click('#editor-save');
+  await panel.locator('.item', { hasText: 'second panneau' }).waitFor();
+
+  // the pin sits next to the element it annotates
+  const geometry = await inPage(() => {
+    const badge = document.getElementById('ai-web-annotator-root').shadowRoot.querySelector('.ai-annotation-badge').getBoundingClientRect();
+    const target = document.getElementById('p2-action').getBoundingClientRect();
+    return { dx: Math.abs(badge.left - target.left), dy: Math.abs(badge.top - target.top) };
+  });
+  assert.ok(geometry.dx < 80 && geometry.dy < 80, `pin near its element (${JSON.stringify(geometry)})`);
+
+  await panel.click('#btn-export');
+  await panel.locator('#view-export').waitFor({ state: 'visible' });
+  assert.match(await panelText('#export-badge'), /2 annotations • 2 écrans/);
+  assert.equal(await panel.locator('.screen-tab').count(), 2);
+  await panel.click('#btn-quit-all');
+  await panel.locator('#status-text', { hasText: 'Inactif' }).waitFor();
+});

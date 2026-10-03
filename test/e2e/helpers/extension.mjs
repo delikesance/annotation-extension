@@ -18,6 +18,8 @@ export const PAGE_HTML = `<!doctype html>
   #cta { padding: 12px 24px; }
   #open-menu { padding: 12px 24px; margin-left: 12px; }
   #ticker { color: #888; font-size: 12px; }
+  .panel { display: none; position: absolute; left: 60px; top: 300px; width: 420px; padding: 20px; border: 2px solid #468; background: #eef; }
+  .panel.open { display: block; }
   #dialog { position: fixed; left: 200px; top: 120px; width: 520px; height: 360px; background: #fff; border: 2px solid #333; padding: 24px; z-index: 10; }
 </style></head>
 <body>
@@ -27,13 +29,17 @@ export const PAGE_HTML = `<!doctype html>
     <p id="lead">Un texte d'introduction pour la page de test.</p>
     <button id="cta" type="button">Commencer</button>
     <button id="open-menu" type="button">Ouvrir les paramètres</button>
+    <button id="toggle-p1" type="button">Panneau 1</button><button id="toggle-p2" type="button">Panneau 2</button>
     <span id="ticker" class="ticker-item">tick 0</span>
     <div id="slot"></div>
+    <section id="panel1" class="panel"><h3 id="p1-title">Premier panneau</h3><button id="p1-action" type="button">Action 1</button></section>
+    <section id="panel2" class="panel"><h3 id="p2-title">Second panneau</h3><button id="p2-action" type="button">Action 2</button></section>
   </main>
 <script>
   let n = 0;
   window.__tickerOn = false;
   setInterval(() => { if (!window.__tickerOn) return; n++; const t = document.createElement('span'); t.className = 'ticker-item'; t.textContent = 'tick ' + n; document.getElementById('slot').appendChild(t); if (n % 3 === 0) { for (let i = 0; i < 4; i++) { const x = document.createElement('span'); x.className = 'ticker-item'; x.textContent = 'x'; document.getElementById('slot').appendChild(x); } } }, 120);
+  for (const n of [1, 2]) document.getElementById('toggle-p' + n).addEventListener('click', () => { for (const m of [1, 2]) document.getElementById('panel' + m).classList.toggle('open', m === n); });
   document.getElementById('open-menu').addEventListener('click', () => {
     const d = document.createElement('div'); d.id = 'dialog'; d.setAttribute('role', 'dialog');
     d.innerHTML = '<h2>Paramètres</h2><button id="close-dialog" type="button">Fermer</button><label>Nom <input id="name"></label><button id="save-settings" type="button">Enregistrer</button>';

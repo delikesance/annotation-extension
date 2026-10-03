@@ -288,7 +288,13 @@ class AnnotatorUIManager {
   startDomObserver() {
     if (this.domObserver || typeof MutationObserver === 'undefined') return;
     this.domObserver = new MutationObserver((records) => this.onDomMutations(records));
-    this.domObserver.observe(document.documentElement, { childList: true, subtree: true });
+    // Panels are often shown/hidden by toggling a class, style or attribute rather than adding nodes.
+    this.domObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'open', 'aria-hidden', 'aria-expanded', 'aria-selected', 'data-state', 'data-open', 'inert']
+    });
   }
 
   stopDomObserver() {
@@ -304,6 +310,15 @@ class AnnotatorUIManager {
     let changed = 0;
     for (const record of records) {
       if (this.host && (record.target === this.host || this.host.contains(record.target))) continue;
+      if (record.type === 'attributes') {
+        // an element that is now visible and large (or structural) counts as something that appeared
+        const el = record.target;
+        // <html>/<body> attribute changes include our own freeze class: never a page change
+        if (el === document.documentElement || el === document.body) continue;
+        if (el.nodeType === 1 && el !== this.host && this.isRendered(el)) { changed++; this.recordDomChange('added', el); }
+        else if (el.nodeType === 1) changed++;
+        continue;
+      }
       for (const node of record.addedNodes) {
         if (node.nodeType === 1 && node !== this.host) { changed++; this.recordDomChange('added', node); }
       }
@@ -321,9 +336,30 @@ class AnnotatorUIManager {
         const changes = this.domChangeLog;
         this.domChangeCount = 0;
         this.domChangeLog = [];
-        if (count >= AnnotatorUIManager.DOM_CHANGE_THRESHOLD) this.decideScreenChange(changes);
+        if (this.hasStaleAnnotations() || count >= AnnotatorUIManager.DOM_CHANGE_THRESHOLD) this.decideScreenChange(changes);
       }, AnnotatorUIManager.DOM_CHANGE_WINDOW_MS);
     }
+  }
+
+  isRendered(el) {
+    if (!el.isConnected || !el.getBoundingClientRect) return false;
+    if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  /** True when a saved annotation's element disappeared, got hidden, or moved/resized away from where its pin was placed. */
+  hasStaleAnnotations() {
+    const scrollX = window.scrollX || window.pageXOffset || 0;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    return this.annotations.some((ann) => {
+      if (!ann.rect) return false;
+      if (!this.isRendered(ann.element)) return true;
+      const r = ann.element.getBoundingClientRect();
+      const t = AnnotatorUIManager.STALE_TOLERANCE_PX;
+      return Math.abs(r.left + scrollX - ann.rect.left) > t || Math.abs(r.top + scrollY - ann.rect.top) > t
+        || Math.abs(r.width - ann.rect.width) > t || Math.abs(r.height - ann.rect.height) > t;
+    });
   }
 
   /** Compact, serialisable description of a changed element, for the screen-change decision. */
@@ -355,7 +391,8 @@ class AnnotatorUIManager {
    * (scripts/eval-heuristics.mjs).
    */
   decideScreenChange(changes) {
-    const isNewScreen = AnnotatorUIManager.isNewScreen(changes);
+    // If an annotated element is gone, hidden or moved, the screen the pins were placed on no longer exists.
+    const isNewScreen = this.hasStaleAnnotations() || AnnotatorUIManager.isNewScreen(changes);
     this.lastScreenDecision = { source: 'local', isNewScreen };
     if (isNewScreen) this.finalizeScreenOnChange();
   }
@@ -723,6 +760,7 @@ class AnnotatorUIManager {
       element: targetElement,
       comment: '',
       type: null,
+      rect: { left: elemLeft, top: elemTop, width: rect.width, height: rect.height },
       badgeEl: badgeEl,
       boxEl: boxEl,
       arrowEl: arrowEl,
@@ -1065,6 +1103,7 @@ AnnotatorUIManager.isNewScreen = function (changes) {
   return addedArea >= AnnotatorUIManager.NEW_SCREEN_MIN_AREA;
 };
 AnnotatorUIManager.PLACEHOLDER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+AnnotatorUIManager.STALE_TOLERANCE_PX = 4;
 AnnotatorUIManager.DOM_CHANGE_THRESHOLD = 3; // element nodes added/removed within one window
 AnnotatorUIManager.DOM_CHANGE_WINDOW_MS = 500;
 
