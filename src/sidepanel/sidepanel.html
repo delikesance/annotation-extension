@@ -37,6 +37,31 @@
         </button>
       </div>
       <div class="list" id="list" aria-label="Annotations"></div>
+      <details class="hosting" id="hosting">
+        <summary>Hébergement des images <span id="hosting-state" class="hosting-state"></span></summary>
+        <form class="hosting-body" id="hosting-form" autocomplete="off">
+          <p class="hosting-help">Les captures sont envoyées vers votre bucket S3 (MinIO, Garage, R2…) sous une adresse non devinable, puis les liens sont ajoutés au prompt, à l'issue GitHub et au JSON.</p>
+          <label class="eyebrow" for="h-endpoint">Endpoint S3</label>
+          <input class="field h-input" id="h-endpoint" type="url" placeholder="https://s3.exemple.cloud (MinIO, Garage, R2…)">
+          <label class="eyebrow" for="h-region">Région</label>
+          <input class="field h-input" id="h-region" type="text" value="us-east-1" placeholder="us-east-1 (MinIO) · garage (Garage) · auto (R2)">
+          <label class="eyebrow" for="h-bucket">Bucket</label>
+          <input class="field h-input" id="h-bucket" type="text" placeholder="annotations">
+          <label class="eyebrow" for="h-key">Access key ID</label>
+          <input class="field h-input" id="h-key" type="text">
+          <label class="eyebrow" for="h-secret">Secret access key</label>
+          <input class="field h-input" id="h-secret" type="password" placeholder="Enregistré (masqué)">
+          <label class="eyebrow" for="h-public">URL publique (domaine du CDN)</label>
+          <input class="field h-input" id="h-public" type="url" placeholder="https://img.exemple.com">
+          <label class="eyebrow" for="h-days">Expiration des liens (jours)</label>
+          <input class="field h-input" id="h-days" type="number" min="1" max="365" value="7">
+          <div class="hosting-actions">
+            <button class="btn btn-small btn-ghost-danger" id="h-clear" type="button">Désactiver</button>
+            <button class="btn btn-small btn-accent" id="h-save" type="submit">Enregistrer et tester</button>
+          </div>
+          <div class="hosting-result" id="h-result" role="status" hidden></div>
+        </form>
+      </details>
       <footer class="rail-footer">
         <button class="btn btn-primary" id="btn-export" type="button">
           <span>Exporter la session</span><span class="kbd">Ctrl E</span>
@@ -55,6 +80,7 @@
           <span id="export-badge" class="export-badge"></span>
         </div>
       </div>
+      <div class="hosting-line" id="hosting-line" role="status" hidden></div>
       <div class="export-body" id="export-body"></div>
       <footer class="rail-footer" id="export-footer"></footer>
     </section>

@@ -90,6 +90,31 @@ TESTING
 
     All tests should pass before submitting changes.
 
+IMAGE HOSTING
+
+    Screenshots can be uploaded to your own S3-compatible storage so the
+    prompt, the GitHub issue and the JSON carry image links the AI can
+    open. Works with Garage, MinIO, Cloudflare R2 or any S3 server
+    (path-style, AWS Signature V4).
+
+    Self-hosted example with Garage:
+
+        docker compose -f compose.storage.yaml up -d
+        docker compose -f compose.storage.yaml exec garage /garage status
+        docker compose -f compose.storage.yaml exec garage /garage layout assign -z dc1 -c 1G <node-id>
+        docker compose -f compose.storage.yaml exec garage /garage layout apply --version 1
+        docker compose -f compose.storage.yaml exec garage /garage bucket create annotations
+        docker compose -f compose.storage.yaml exec garage /garage key create annotator
+        docker compose -f compose.storage.yaml exec garage /garage bucket allow --read --write --owner annotations --key annotator
+        docker compose -f compose.storage.yaml exec garage /garage bucket website --allow annotations
+
+    Then open "Hébergement des images" in the side panel and fill in:
+    endpoint (S3 API URL), region (garage), bucket, access key, secret key,
+    public URL (the web endpoint, e.g. https://annotations.img.example.cloud)
+    and the link lifetime. Files are stored under annotations/<random>/ so
+    URLs cannot be guessed, and an expiration rule is installed on the
+    bucket. The secret stays in the browser (chrome.storage.local).
+
 JEV (DEVELOPMENT-TIME DECISIONS)
 
     Jev (TypeSafe System One) is used while developing, never inside the

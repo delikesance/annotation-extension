@@ -30,6 +30,9 @@
   "host_permissions": [
     "https://git.delikesance.cloud/*"
   ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",

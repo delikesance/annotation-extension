@@ -163,6 +163,7 @@ class AnnotatorUIManager {
       case 'export': return this.finishAndShowExport();
       case 'close': return this.deactivate();
       case 'back': return this.closeExportView();
+      case 'export-urls': return this.setExportImageUrls(payload.urls);
       case 'open': {
         const ann = this.annotations.find(a => a.index === payload.index);
         if (ann && this.isInspecting) {
@@ -961,34 +962,51 @@ class AnnotatorUIManager {
         allPages.push(this.snapshotPage(allPages.length + 1, currentPageDataUrl));
       }
 
-      const payload = this.generateMultiPagePayload(allPages);
-      const prompts = {
-        agent: this.generateConsolidatedPrompt(allPages, 'agent'),
-        github: this.generateConsolidatedPrompt(allPages, 'github'),
-        json: JSON.stringify(payload, null, 2)
-      };
-      payload.aiPrompt = prompts.agent;
-      prompts.json = JSON.stringify(payload, null, 2);
-
-      this.lastExportData = { dataUrl: currentPageDataUrl, promptText: prompts.agent, payload, pages: allPages };
-      this.exportView = {
-        id: Date.now(),
-        pages: allPages.map(p => ({
-          stepIndex: p.stepIndex,
-          title: p.title,
-          url: p.url,
-          dataUrl: p.dataUrl,
-          count: (p.annotations || []).length
-        })),
-        prompts,
-        payload
-      };
+      this.exportPages = allPages;
+      this.exportViewId = Date.now();
+      this.imageUrls = {};
+      this.exportView = this.buildExportView(allPages, currentPageDataUrl);
       this.status = null;
       this.broadcastPanelState();
     } catch (err) {
       console.error('[AI Web Annotator] Export failed:', err);
       this.showToast(`Erreur : ${err.message}`);
     }
+  }
+
+  /** Builds what the panel shows for an export; image URLs (when hosted) are woven into every format. */
+  buildExportView(pages, lastDataUrl) {
+    const withUrls = pages.map(p => ({ ...p, imageUrl: (this.imageUrls && this.imageUrls[p.stepIndex]) || null }));
+    const payload = this.generateMultiPagePayload(withUrls);
+    const prompts = {
+      agent: this.generateConsolidatedPrompt(withUrls, 'agent'),
+      github: this.generateConsolidatedPrompt(withUrls, 'github'),
+      json: ''
+    };
+    payload.aiPrompt = prompts.agent;
+    prompts.json = JSON.stringify(payload, null, 2);
+    this.lastExportData = { dataUrl: lastDataUrl, promptText: prompts.agent, payload, pages: withUrls };
+    return {
+      id: this.exportViewId,
+      pages: withUrls.map(p => ({
+        stepIndex: p.stepIndex,
+        title: p.title,
+        url: p.url,
+        dataUrl: p.dataUrl,
+        imageUrl: p.imageUrl,
+        count: (p.annotations || []).length
+      })),
+      prompts,
+      payload
+    };
+  }
+
+  /** Called by the panel once the screenshots are hosted: rebuild prompts/JSON with their URLs. */
+  setExportImageUrls(urls) {
+    if (!this.exportView || !this.exportPages) return;
+    this.imageUrls = { ...(urls || {}) };
+    this.exportView = this.buildExportView(this.exportPages, this.lastExportData && this.lastExportData.dataUrl);
+    this.broadcastPanelState();
   }
 
   closeExportView() {
@@ -1016,6 +1034,9 @@ class AnnotatorUIManager {
     pages.forEach((page) => {
       if (isMultiPage) {
         prompt += `\n---\n### 🚩 Étape #${page.stepIndex} : ${page.title} (\`${page.url}\`)\n`;
+      }
+      if (page.imageUrl) {
+        prompt += `- **Capture d'écran annotée** : ${page.imageUrl}\n`;
       }
 
       (page.annotations || []).forEach((a) => {
@@ -1054,6 +1075,9 @@ class AnnotatorUIManager {
     pages.forEach((page) => {
       md += `### 🚩 Étape #${page.stepIndex} : ${page.title}\n`;
       md += `**URL :** ${page.url}  \n\n`;
+      if (page.imageUrl) {
+        md += `![Écran ${page.stepIndex}](${page.imageUrl})\n\n`;
+      }
       (page.annotations || []).forEach((a) => {
         const meta = a.metadata ? a.metadata.element : {};
         md += `- [ ] **[Point #${a.index}]** **${ANNOTATION_TYPES[a.type] || 'Style'}** \`${meta.cssSelector || meta.tag || 'element'}\` : ${a.comment || 'À corriger'}\n`;
@@ -1076,6 +1100,7 @@ class AnnotatorUIManager {
         stepIndex: p.stepIndex,
         url: p.url,
         title: p.title,
+        imageUrl: p.imageUrl || null,
         annotations: p.annotations
       })),
       aiPrompt: promptText || this.generateConsolidatedPrompt(pages, 'agent')

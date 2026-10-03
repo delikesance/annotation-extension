@@ -10,7 +10,7 @@ const same = (a, b, msg) => assert.deepEqual(JSON.parse(JSON.stringify(a)), b, m
 const root = new URL('../src/', import.meta.url);
 const read = (p) => fs.readFileSync(new URL(p, root), 'utf8');
 
-function mountPanel({ runtime, storage } = {}) {
+function mountPanel({ runtime, storage, permissions } = {}) {
   const html = read('sidepanel/sidepanel.html').replace(/<script[^>]*><\/script>/g, '').replace(/<link[^>]*>/g, '');
   const dom = new JSDOM(html, { url: 'chrome-extension://test/sidepanel/sidepanel.html?tabId=7', runScripts: 'outside-only' });
   const toTab = [];
@@ -35,6 +35,7 @@ function mountPanel({ runtime, storage } = {}) {
         return { success: true };
       }
     },
+    permissions: { request: async (r) => (permissions ? permissions(r) : true) },
     storage: { local: {
       get: async () => ({ ...store }),
       set: async (o) => Object.assign(store, o),
@@ -290,4 +291,85 @@ test('no update banner when up to date', async () => {
   const { d } = mountPanel({ runtime: (m) => (m.action === 'GET_UPDATE_INFO' ? { success: true, update: null } : undefined) });
   await wait(20);
   assert.equal(d.getElementById('update-banner').hidden, true);
+});
+
+test('image hosting: when configured, screenshots are uploaded once per export and the page rebuilds the prompts with the links', async () => {
+  const { d, push, ops, toRuntime } = mountPanel({ runtime: (m) => {
+    if (m.action === 'HOSTING_STATUS') return { configured: true, expireDays: 7 };
+    if (m.action === 'HOSTING_UPLOAD') return { success: true, urls: { 1: 'https://cdn/x/1.png', 2: 'https://cdn/x/2.png' }, expireDays: 7 };
+    return undefined;
+  } });
+  push(exportState());
+  await wait(30);
+  const upload = toRuntime.find(m => m.action === 'HOSTING_UPLOAD');
+  assert.equal(upload.pages.length, 2);
+  assert.equal(upload.pages[1].dataUrl, 'data:image/png;base64,BBB');
+  const urlsOp = ops().find(o => o.op === 'export-urls');
+  same(urlsOp.urls, { 1: 'https://cdn/x/1.png', 2: 'https://cdn/x/2.png' });
+  assert.match(d.getElementById('hosting-line').textContent, /liens ajoutés.*expiration 7 j/);
+
+  push(exportState()); // same export id: no second upload
+  push(exportState({ exportView: { ...exportState().exportView, pages: exportState().exportView.pages.map(p => ({ ...p, imageUrl: 'u' })) } }));
+  await wait(20);
+  assert.equal(toRuntime.filter(m => m.action === 'HOSTING_UPLOAD').length, 1);
+});
+
+test('image hosting: nothing is uploaded when not configured; upload failures are shown and exports still work', async () => {
+  const off = mountPanel({ runtime: (m) => (m.action === 'HOSTING_STATUS' ? { configured: false } : undefined) });
+  off.push(exportState());
+  await wait(30);
+  assert.equal(off.toRuntime.some(m => m.action === 'HOSTING_UPLOAD'), false);
+  assert.equal(off.d.getElementById('hosting-line').hidden, true);
+
+  const failing = mountPanel({ runtime: (m) => {
+    if (m.action === 'HOSTING_STATUS') return { configured: true, expireDays: 7 };
+    if (m.action === 'HOSTING_UPLOAD') return { success: false, error: 'Upload refusé (HTTP 403)' };
+    return undefined;
+  } });
+  failing.push(exportState());
+  await wait(30);
+  const line = failing.d.getElementById('hosting-line');
+  assert.equal(line.hidden, false);
+  assert.match(line.textContent, /Hébergement impossible : Upload refusé \(HTTP 403\)/);
+  assert.ok(line.classList.contains('is-error'));
+  assert.equal(failing.d.getElementById('btn-copy').disabled, false);
+});
+
+test('image hosting settings: asks Chrome for access to the bucket origin, then verifies and saves via the background', async () => {
+  const asked = [];
+  const { d, toRuntime } = mountPanel({
+    permissions: (r) => { asked.push(r); return true; },
+    runtime: (m) => (m.action === 'HOSTING_SETUP' ? { success: true } : m.action === 'HOSTING_STATUS' ? { configured: true, expireDays: 3 } : undefined)
+  });
+  d.getElementById('h-endpoint').value = 'https://acct.r2.cloudflarestorage.com';
+  d.getElementById('h-bucket').value = 'annotations';
+  d.getElementById('h-key').value = 'AKIA';
+  d.getElementById('h-secret').value = 'shh';
+  d.getElementById('h-public').value = 'https://img.example.com';
+  d.getElementById('h-days').value = '3';
+  d.getElementById('hosting-form').dispatchEvent(new d.defaultView.Event('submit', { cancelable: true, bubbles: true }));
+  await wait(30);
+
+  same(asked, [{ origins: ['https://acct.r2.cloudflarestorage.com/*'] }]);
+  const setup = toRuntime.find(m => m.action === 'HOSTING_SETUP');
+  assert.equal(setup.config.secretAccessKey, 'shh');
+  assert.equal(setup.config.publicBaseUrl, 'https://img.example.com');
+  assert.match(d.getElementById('h-result').textContent, /Accès vérifié.*3 jours/);
+  assert.equal(d.getElementById('h-secret').value, '', 'the secret is cleared from the form');
+  assert.match(d.getElementById('hosting-state').textContent, /actif \(3 j\)/);
+});
+
+test('image hosting settings: a refused permission or a failing check is reported', async () => {
+  const refused = mountPanel({ permissions: () => false });
+  refused.d.getElementById('h-endpoint').value = 'https://acct.example.com';
+  refused.d.getElementById('hosting-form').dispatchEvent(new refused.d.defaultView.Event('submit', { cancelable: true, bubbles: true }));
+  await wait(20);
+  assert.match(refused.d.getElementById('h-result').textContent, /Autorisation.*refusée/);
+
+  const failing = mountPanel({ runtime: (m) => (m.action === 'HOSTING_SETUP' ? { success: false, error: 'Accès refusé (HTTP 403)' } : undefined) });
+  failing.d.getElementById('h-endpoint').value = 'https://acct.example.com';
+  failing.d.getElementById('hosting-form').dispatchEvent(new failing.d.defaultView.Event('submit', { cancelable: true, bubbles: true }));
+  await wait(20);
+  assert.match(failing.d.getElementById('h-result').textContent, /Accès refusé \(HTTP 403\)/);
+  assert.ok(failing.d.getElementById('h-result').classList.contains('is-error'));
 });

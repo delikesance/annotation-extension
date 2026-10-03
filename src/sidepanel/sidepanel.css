@@ -157,3 +157,15 @@ button:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
+
+.hosting { margin: 0 12px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.hosting summary { padding: 10px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.hosting-state { font-weight: 500; color: var(--muted); margin-left: 6px; }
+.hosting-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 6px; }
+.hosting-help { margin: 0 0 4px; font-size: 12px; line-height: 17px; color: var(--muted); }
+.h-input { height: 36px; padding: 0 10px; }
+.hosting-actions { display: flex; justify-content: space-between; margin-top: 6px; }
+.hosting-result { font-size: 12px; line-height: 17px; padding: 8px 10px; border-radius: 8px; background: #E7F3EC; color: var(--ok); }
+.hosting-result.is-error { background: #FDE8E5; color: var(--danger); }
+.hosting-line { padding: 8px 20px; font-size: 12px; line-height: 17px; background: #E7F3EC; color: var(--ok); border-bottom: 1px solid #B9D9C5; }
+.hosting-line.is-error { background: #FDE8E5; color: var(--danger); border-color: #F2B8B0; }

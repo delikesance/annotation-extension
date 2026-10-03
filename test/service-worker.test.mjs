@@ -92,3 +92,50 @@ test('after a navigation the background re-injects the annotator and restores th
   await listeners.updated(32, { status: 'complete' }, { url: 'https://example.com/other' });
   assert.equal(calls.tabsSend.length, n, 'other tabs are left alone');
 });
+
+import { startMockS3 } from './helpers/mock-s3.mjs';
+
+test('image hosting: setup verifies credentials, sets expiry and saves; upload returns unguessable public URLs', async () => {
+  const s3 = await startMockS3();
+  const stored = {};
+  chrome.storage.local.get = async (keys) => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).filter((k) => k in stored).map((k) => [k, stored[k]]));
+  chrome.storage.local.set = async (o) => Object.assign(stored, o);
+  chrome.storage.local.remove = async (keys) => keys.forEach((k) => delete stored[k]);
+
+  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: false, expireDays: null });
+  const bad = await message({ action: 'HOSTING_SETUP', config: { endpoint: s3.endpoint, bucket: s3.bucket, accessKeyId: s3.accessKeyId, secretAccessKey: 'wrong', publicBaseUrl: s3.publicBaseUrl } }, {});
+  assert.equal(bad.success, false);
+  assert.match(bad.error, /403/);
+  assert.equal((await message({ action: 'HOSTING_SETUP', config: { endpoint: 'nope' } }, {})).success, false);
+
+  const config = { endpoint: s3.endpoint, bucket: s3.bucket, accessKeyId: s3.accessKeyId, secretAccessKey: s3.secretAccessKey, publicBaseUrl: s3.publicBaseUrl + '/', expireDays: '3' };
+  assert.deepEqual(await message({ action: 'HOSTING_SETUP', config }, {}), { success: true, expirationWarning: null });
+  assert.match(s3.getLifecycle(), /<Days>3<\/Days>/);
+  assert.match(s3.getLifecycle(), /<Prefix>annotations\/<\/Prefix>/);
+  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: true, expireDays: 3 });
+
+  const png = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]).toString('base64');
+  const up = await message({ action: 'HOSTING_UPLOAD', pages: [{ stepIndex: 1, dataUrl: png }, { stepIndex: 2, dataUrl: png }] }, {});
+  assert.equal(up.success, true);
+  const [u1, u2] = [up.urls[1], up.urls[2]];
+  assert.match(u1, new RegExp(`^${s3.publicBaseUrl}/annotations/[0-9a-f]{36}/ecran-1\\.png$`));
+  assert.notEqual(u1.split('/')[5], u2.split('/')[5], 'each upload gets its own random folder');
+  const fetched = await fetch(u1);
+  assert.equal(fetched.status, 200);
+  assert.equal(fetched.headers.get('content-type'), 'image/png');
+  assert.deepEqual([...new Uint8Array(await fetched.arrayBuffer())], [0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+
+  await message({ action: 'HOSTING_CLEAR' }, {});
+  assert.equal((await message({ action: 'HOSTING_UPLOAD', pages: [] }, {})).success, false);
+  await s3.close();
+});
+
+test('image hosting: a failing bucket reports the error instead of throwing', async () => {
+  const s3 = await startMockS3();
+  const stored = { image_hosting: { endpoint: s3.endpoint, bucket: 'other-bucket', accessKeyId: s3.accessKeyId, secretAccessKey: s3.secretAccessKey, publicBaseUrl: s3.publicBaseUrl } };
+  chrome.storage.local.get = async () => ({ ...stored });
+  const res = await message({ action: 'HOSTING_UPLOAD', pages: [{ stepIndex: 1, dataUrl: 'data:image/png;base64,AAAA' }] }, {});
+  assert.equal(res.success, false);
+  assert.match(res.error, /404/);
+  await s3.close();
+});

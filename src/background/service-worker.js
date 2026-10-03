@@ -5,6 +5,9 @@
  * and file downloads.
  */
 
+import { uploadPng, setExpiration, checkAccess } from './s3.js';
+
+const HOSTING_KEY = 'image_hosting';
 let creatingOffscreenDocument = null;
 
 async function setupOffscreenDocument(path) {
@@ -38,6 +41,34 @@ async function hasOffscreenDocument(path) {
 }
 
 const SIDE_PANEL_PATH = 'sidepanel/sidepanel.html';
+
+export function normalizeHostingConfig(c) {
+  if (!c) return null;
+  const endpoint = String(c.endpoint || '').trim().replace(/\/+$/, '');
+  const publicBaseUrl = String(c.publicBaseUrl || '').trim().replace(/\/+$/, '');
+  const cfg = {
+    endpoint,
+    bucket: String(c.bucket || '').trim(),
+    accessKeyId: String(c.accessKeyId || '').trim(),
+    secretAccessKey: String(c.secretAccessKey || '').trim(),
+    publicBaseUrl,
+    region: String(c.region || 'us-east-1').trim() || 'us-east-1',
+    prefix: 'annotations',
+    expireDays: Math.max(1, Math.min(365, parseInt(c.expireDays, 10) || 7))
+  };
+  if (!/^https?:\/\//.test(endpoint) || !/^https?:\/\//.test(publicBaseUrl)) return null;
+  if (!cfg.bucket || !cfg.accessKeyId || !cfg.secretAccessKey) return null;
+  return cfg;
+}
+
+async function getHostingConfig() {
+  try {
+    const stored = await chrome.storage.local.get([HOSTING_KEY]);
+    return normalizeHostingConfig(stored && stored[HOSTING_KEY]);
+  } catch (_) {
+    return null;
+  }
+}
 
 // Inject scripts into a tab
 async function injectAnnotatorScripts(tabId) {
@@ -298,6 +329,55 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         sendResponse({ success: true, update: updateInfo });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'HOSTING_STATUS') {
+    getHostingConfig().then((cfg) => sendResponse({ configured: Boolean(cfg), expireDays: cfg ? cfg.expireDays : null }));
+    return true;
+  }
+
+  if (message.action === 'HOSTING_SETUP') {
+    (async () => {
+      const cfg = normalizeHostingConfig(message.config);
+      if (!cfg) return sendResponse({ success: false, error: 'Configuration incomplète.' });
+      try {
+        await checkAccess(cfg);
+        let expirationWarning = null;
+        try {
+          await setExpiration(cfg, cfg.expireDays);
+        } catch (error) {
+          // some servers do not implement lifecycle rules: keep going, the expiry must then be set server-side
+          expirationWarning = error.message;
+        }
+        await chrome.storage.local.set({ [HOSTING_KEY]: cfg });
+        sendResponse({ success: true, expirationWarning });
+      } catch (error) {
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'HOSTING_CLEAR') {
+    chrome.storage.local.remove([HOSTING_KEY]).then(() => sendResponse({ success: true }));
+    return true;
+  }
+
+  if (message.action === 'HOSTING_UPLOAD') {
+    (async () => {
+      const cfg = await getHostingConfig();
+      if (!cfg) return sendResponse({ success: false, error: 'Hébergement non configuré.' });
+      try {
+        const urls = {};
+        for (const page of message.pages || []) {
+          urls[page.stepIndex] = await uploadPng(cfg, page.dataUrl, `ecran-${page.stepIndex}`);
+        }
+        sendResponse({ success: true, urls, expireDays: cfg.expireDays });
+      } catch (error) {
+        sendResponse({ success: false, error: error.message });
       }
     })();
     return true;

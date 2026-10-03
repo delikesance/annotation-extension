@@ -343,3 +343,31 @@ test('restoring a session on a new page continues numbering and the mode', () =>
   assert.equal(lastState().counterText, 'Écran #2 (1 point)');
   ui.deactivate();
 });
+
+test('hosted image URLs are woven into the agent prompt, the GitHub issue and the JSON', async () => {
+  const { window, ui, lastState, clickElement } = createContentEnv();
+  ui.activate();
+  ui.handleRailAction('annotate');
+  clickElement(window.document.getElementById('cta-button'));
+  ui.handleRailAction('save', { comment: 'A', type: 'bug' });
+  await ui.nextScreen();
+  clickElement(window.document.getElementById('title'));
+  ui.handleRailAction('save', { comment: 'B', type: 'style' });
+  await ui.handleRailAction('export');
+
+  const before = lastState().exportView;
+  assert.ok(!before.prompts.agent.includes('https://cdn.test'));
+  assert.equal(before.pages[0].imageUrl, null);
+
+  ui.handleRailAction('export-urls', { urls: { 1: 'https://cdn.test/a/ecran-1.png', 2: 'https://cdn.test/b/ecran-2.png' } });
+  const view = lastState().exportView;
+  assert.equal(view.id, before.id, 'same export, so the panel does not re-upload');
+  assert.match(view.prompts.agent, /Étape #1[^]*Capture d'écran annotée\*\* : https:\/\/cdn\.test\/a\/ecran-1\.png[^]*Étape #2[^]*https:\/\/cdn\.test\/b\/ecran-2\.png/);
+  assert.match(view.prompts.github, /!\[Écran 1\]\(https:\/\/cdn\.test\/a\/ecran-1\.png\)/);
+  assert.match(view.prompts.github, /!\[Écran 2\]\(https:\/\/cdn\.test\/b\/ecran-2\.png\)/);
+  const json = JSON.parse(view.prompts.json);
+  assert.deepEqual(json.pages.map(p => p.imageUrl), ['https://cdn.test/a/ecran-1.png', 'https://cdn.test/b/ecran-2.png']);
+  assert.ok(json.aiPrompt.includes('https://cdn.test/a/ecran-1.png'));
+  assert.deepEqual(view.pages.map(p => p.imageUrl), ['https://cdn.test/a/ecran-1.png', 'https://cdn.test/b/ecran-2.png']);
+  ui.deactivate();
+});

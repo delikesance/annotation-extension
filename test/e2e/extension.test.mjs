@@ -1,6 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startExtension } from './helpers/extension.mjs';
+import { startMockS3 } from '../helpers/mock-s3.mjs';
 
 let env;
 let panel;
@@ -299,6 +300,7 @@ test('14. the exported screenshot actually contains the annotation pins', async 
 test('15. a newer release shows the update banner in the panel and its button opens the download', async () => {
   // The service worker's update check hits the Forgejo API: answer it with a newer release.
   await env.sw.evaluate((base) => {
+    globalThis.__realFetch = globalThis.fetch;
     globalThis.fetch = async () => ({
       ok: true,
       json: async () => ({
@@ -317,6 +319,8 @@ test('15. a newer release shows the update banner in the panel and its button op
   const tab = await opened;
   await tab.waitForLoadState('domcontentloaded');
   assert.match(tab.url(), /\/download\.zip$/);
+  await env.sw.evaluate(() => { globalThis.fetch = globalThis.__realFetch; }); // do not leak the stub into later tests
+  await fresh.close(); // one panel per tab, like Chrome's side panel
 });
 
 test('16. panels shown/hidden by class toggles (no node added): each panel gets its own screen and its pins sit on the right elements', async () => {
@@ -365,4 +369,72 @@ test('16. panels shown/hidden by class toggles (no node added): each panel gets 
   assert.equal(await panel.locator('.screen-tab').count(), 2);
   await panel.click('#btn-quit-all');
   await panel.locator('#status-text', { hasText: 'Inactif' }).waitFor();
+});
+
+test('17. screenshots are uploaded to the S3-compatible bucket (verified SigV4) and their links land in the agent prompt, GitHub issue and JSON', async () => {
+  const s3 = await startMockS3();
+  try {
+    // configure the hosting through the panel form, like a user would
+    await panel.locator('#hosting summary').click().catch(() => {});
+    await env.page.goto(env.url, { waitUntil: 'load' });
+    await env.injectAndToggle();
+    await panel.locator('#status-text', { hasText: /Navigation libre|Mode annotation/ }).waitFor();
+    await panel.evaluate(() => { document.getElementById('hosting').open = true; });
+    await panel.fill('#h-endpoint', s3.endpoint);
+    await panel.fill('#h-bucket', s3.bucket);
+    await panel.fill('#h-key', s3.accessKeyId);
+    await panel.fill('#h-secret', s3.secretAccessKey);
+    await panel.fill('#h-public', s3.publicBaseUrl);
+    await panel.fill('#h-days', '5');
+    await panel.click('#h-save');
+    await panel.locator('#h-result', { hasText: 'Accès vérifié' }).waitFor({ timeout: 10000 });
+    assert.match(s3.getLifecycle(), /<Days>5<\/Days>/, 'expiry rule was installed on the bucket');
+    assert.match(await panelText('#hosting-state'), /actif \(5 j\)/);
+
+    // annotate and export
+    if ((await panel.locator('#status-text').innerText()) !== 'Mode annotation') await panel.click('#btn-annotate');
+    await env.page.hover('#cta');
+    await env.page.click('#cta');
+    await panel.locator('.editor textarea').fill('Le bouton ne réagit pas au clic');
+    await panel.click('#editor-save');
+    await panel.locator('.item', { hasText: 'ne réagit pas' }).waitFor();
+    await panel.click('#btn-export');
+    await panel.locator('#hosting-line', { hasText: 'Captures hébergées' }).waitFor({ timeout: 15000 });
+
+    const stored = [...s3.objects.entries()];
+    assert.equal(stored.length, 1);
+    const [key, obj] = stored[0];
+    assert.match(key, /^annotations\/[0-9a-f]{36}\/ecran-1\.png$/);
+    assert.deepEqual([...obj.body.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], 'a real PNG was uploaded');
+    assert.ok(obj.body.length > 3000);
+    assert.ok(s3.log.every(l => !l.denied), `every signed request was accepted: ${JSON.stringify(s3.log.filter(l => l.denied))}`);
+
+    const url = `${s3.publicBaseUrl}/${key}`;
+    const served = await fetch(url);
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get('content-type'), 'image/png');
+
+    const readClipboard = () => panel.evaluate(() => navigator.clipboard.readText());
+    await panel.click('#btn-copy');
+    await panel.locator('#btn-copy', { hasText: 'Copié' }).waitFor();
+    const agent = await readClipboard();
+    assert.ok(agent.includes(url), 'agent prompt carries the image link');
+    assert.match(agent, /Capture d'écran annotée\*\* : http/);
+
+    await panel.click('.dest[data-format="github"]');
+    await panel.click('#btn-copy');
+    await panel.locator('#btn-copy', { hasText: 'Copié' }).waitFor();
+    assert.ok((await readClipboard()).includes(`![Écran 1](${url})`));
+
+    await panel.click('.dest[data-format="json"]');
+    await panel.click('#btn-copy');
+    await panel.locator('#btn-copy', { hasText: 'Copié' }).waitFor();
+    assert.equal(JSON.parse(await readClipboard()).pages[0].imageUrl, url);
+
+    await panel.click('#btn-quit-all');
+    await panel.locator('#status-text', { hasText: 'Inactif' }).waitFor();
+    await panel.click('#h-clear');
+  } finally {
+    await s3.close();
+  }
 });

@@ -1,0 +1,18 @@
+# Garage config for hosting annotation screenshots (see README, "IMAGE HOSTING").
+# Replace rpc_secret (openssl rand -hex 32) and the root domains with your own.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+replication_factor = 1
+rpc_bind_addr = "[::]:3901"
+rpc_secret = "CHANGE_ME_WITH_openssl_rand_-hex_32"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.example.cloud"
+
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".img.example.cloud"
+index = "index.html"

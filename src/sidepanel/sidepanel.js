@@ -24,6 +24,7 @@
   let selectedPage = 0;
   let statusTimer = null;
   let shownStatusId = null;
+  let hostedKey = null; // export view whose screenshots were already sent (or are being sent) to the hosting
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -243,6 +244,7 @@
       exportKey = key;
       selectedPage = Math.max(0, pages.length - 1);
     }
+    maybeHostImages(view);
     const multi = pages.length > 1;
     const total = pages.reduce((acc, p) => acc + (p.count || 0), 0);
     $('export-badge').textContent = `${total} annotation${total > 1 ? 's' : ''}${multi ? ` • ${pages.length} écrans` : ''}`;
@@ -331,6 +333,80 @@
     quit.addEventListener('click', () => send('close'));
     footer.appendChild(quit);
   }
+
+  // ------------------------------------------------------------------
+  // Image hosting: screenshots go to the user's S3-compatible bucket, links are added to every format
+  // ------------------------------------------------------------------
+  function setHostingLine(text, isError) {
+    const line = $('hosting-line');
+    line.hidden = !text;
+    line.textContent = text || '';
+    line.classList.toggle('is-error', Boolean(isError));
+  }
+
+  async function maybeHostImages(view) {
+    if (hostedKey === view.id) return;
+    hostedKey = view.id;
+    if (view.pages.every((p) => p.imageUrl)) return;
+    let status;
+    try { status = await chrome.runtime.sendMessage({ action: 'HOSTING_STATUS' }); } catch (_) { return; }
+    if (!status || !status.configured) { setHostingLine(''); return; }
+    setHostingLine('Hébergement des captures…');
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'HOSTING_UPLOAD', pages: view.pages.map((p) => ({ stepIndex: p.stepIndex, dataUrl: p.dataUrl })) });
+      if (res && res.success) {
+        await send('export-urls', { urls: res.urls });
+        setHostingLine(`Captures hébergées : liens ajoutés au prompt, à l'issue GitHub et au JSON (expiration ${res.expireDays} j).`);
+      } else {
+        setHostingLine(`Hébergement impossible : ${(res && res.error) || 'erreur inconnue'}. Les exports restent sans liens d'images.`, true);
+      }
+    } catch (error) {
+      setHostingLine(`Hébergement impossible : ${error.message}`, true);
+    }
+  }
+
+  async function loadHostingState() {
+    try {
+      const status = await chrome.runtime.sendMessage({ action: 'HOSTING_STATUS' });
+      $('hosting-state').textContent = status && status.configured ? `actif (${status.expireDays} j)` : 'inactif';
+    } catch (_) {}
+  }
+
+  $('hosting-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const config = {
+      endpoint: $('h-endpoint').value, region: $('h-region').value, bucket: $('h-bucket').value, accessKeyId: $('h-key').value,
+      secretAccessKey: $('h-secret').value, publicBaseUrl: $('h-public').value, expireDays: $('h-days').value
+    };
+    const result = $('h-result');
+    result.hidden = false;
+    result.classList.remove('is-error');
+    result.textContent = 'Vérification…';
+    try {
+      // The bucket's origin is not known in advance: ask Chrome for access to it (needs this click).
+      const origin = new URL(config.endpoint).origin + '/*';
+      if (chrome.permissions && chrome.permissions.request) {
+        const granted = await chrome.permissions.request({ origins: [origin] });
+        if (!granted) throw new Error("Autorisation d'accès au bucket refusée.");
+      }
+      const res = await chrome.runtime.sendMessage({ action: 'HOSTING_SETUP', config });
+      if (!res || !res.success) throw new Error((res && res.error) || 'échec');
+      result.textContent = res.expirationWarning
+        ? `Accès vérifié. Expiration non configurée par le serveur (${res.expirationWarning}) : réglez-la côté serveur (${config.expireDays || 7} jours conseillés).`
+        : `Accès vérifié, expiration automatique après ${config.expireDays || 7} jours.`;
+      $('h-secret').value = '';
+    } catch (error) {
+      result.classList.add('is-error');
+      result.textContent = error.message;
+    }
+    loadHostingState();
+  });
+
+  $('h-clear').addEventListener('click', async () => {
+    await chrome.runtime.sendMessage({ action: 'HOSTING_CLEAR' });
+    $('h-result').hidden = true;
+    loadHostingState();
+  });
 
   function markDone(button, textNode, original, doneText) {
     button.classList.add('is-done');
@@ -451,4 +527,5 @@
   render(null);
   refresh();
   checkUpdate();
+  loadHostingState();
 })();

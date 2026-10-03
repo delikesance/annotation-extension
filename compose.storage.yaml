@@ -1,0 +1,17 @@
+# Self-hosted S3 storage for annotation screenshots (Garage).
+#   docker compose -f compose.storage.yaml up -d
+# Put a reverse proxy (TLS) in front of 3900 (S3 API) and 3902 (public web endpoint).
+services:
+  garage:
+    image: dxflrs/garage:v1.0.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3902:3902"
+    volumes:
+      - ./deploy/garage/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+volumes:
+  garage-meta:
+  garage-data:
