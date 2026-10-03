@@ -1,0 +1,196 @@
+{
+ "comments": {
+  "Le bouton ne réagit pas au clic": {
+   "type": "bug",
+   "vague": 0.74
+  },
+  "Le formulaire plante quand on valide": {
+   "type": "bug",
+   "vague": 0.82
+  },
+  "Erreur 500 après l'envoi": {
+   "type": "bug",
+   "vague": 0.69
+  },
+  "Le menu ne s'ouvre pas sur mobile": {
+   "type": "bug",
+   "vague": 0.64
+  },
+  "Le lien est cassé, il mène vers une page 404": {
+   "type": "bug",
+   "vague": 0.72
+  },
+  "La vidéo se bloque après 10 secondes": {
+   "type": "bug",
+   "vague": 0.58
+  },
+  "Le panier ne se met pas à jour quand j'ajoute un produit": {
+   "type": "bug",
+   "vague": 0.59
+  },
+  "Impossible de fermer la modale": {
+   "type": "bug",
+   "vague": 0.62
+  },
+  "Titre trop petit sur mobile, passer à 40px": {
+   "type": "style",
+   "vague": 0.15
+  },
+  "Augmenter l'espacement entre les cartes à 24px": {
+   "type": "style",
+   "vague": 0.16
+  },
+  "Le bouton doit être vert #1F6B45": {
+   "type": "style",
+   "vague": 0.28
+  },
+  "Aligner le logo à gauche avec le menu": {
+   "type": "style",
+   "vague": 0.38
+  },
+  "Réduire la hauteur du header de 80px à 56px": {
+   "type": "style",
+   "vague": 0.09
+  },
+  "Mettre une bordure arrondie de 8px sur les images": {
+   "type": "style",
+   "vague": 0.27
+  },
+  "Le contraste du texte gris est trop faible, passer à #4F4B44": {
+   "type": "style",
+   "vague": 0.11
+  },
+  "Reformuler : « Démarrer gratuitement »": {
+   "type": "text",
+   "vague": 0.49
+  },
+  "Corriger la faute dans le titre : « bienvenu » → « bienvenue »": {
+   "type": "text",
+   "vague": 0.16
+  },
+  "Traduire ce libellé en anglais": {
+   "type": "text",
+   "vague": 0.78
+  },
+  "Remplacer le texte par « Créer mon compte »": {
+   "type": "text",
+   "vague": 0.27
+  },
+  "Le wording du bouton n'est pas clair, mettre « Envoyer le message »": {
+   "type": "text",
+   "vague": 0.15
+  },
+  "Changer la phrase d'intro pour parler du prix": {
+   "type": "text",
+   "vague": 0.78
+  },
+  "Pas bien": {
+   "type": "bug",
+   "vague": 0.95
+  },
+  "à revoir": {
+   "type": "style",
+   "vague": 0.95
+  },
+  "Bizarre": {
+   "type": "bug",
+   "vague": 0.96
+  },
+  "Mieux": {
+   "type": "style",
+   "vague": 0.94
+  },
+  "Trop moche": {
+   "type": "style",
+   "vague": 0.93
+  },
+  "À améliorer": {
+   "type": "style",
+   "vague": 0.95
+  },
+  "Pas terrible ça": {
+   "type": "style",
+   "vague": 0.93
+  },
+  "Faire plus propre": {
+   "type": "style",
+   "vague": 0.91
+  },
+  "Le design n'est pas joli": {
+   "type": "style",
+   "vague": 0.93
+  },
+  "Ajouter une icône de panier à côté du texte du bouton": {
+   "type": "style",
+   "vague": 0.41
+  },
+  "Ce bloc doit être sur deux colonnes au-dessus de 1024px": {
+   "type": "style",
+   "vague": 0.2
+  },
+  "Mettre le prix en gras et en rouge": {
+   "type": "style",
+   "vague": 0.54
+  },
+  "Le champ email doit afficher un message d'erreur sous le champ si invalide": {
+   "type": "bug",
+   "vague": 0.43
+  }
+ },
+ "domChanges": {
+  "Horloge qui se met à jour": {
+   "newState": 0.04
+  },
+  "Ticker boursier": {
+   "newState": 0.04
+  },
+  "Spinner de chargement": {
+   "newState": 0.05
+  },
+  "Compteur de notifications": {
+   "newState": 0.08
+  },
+  "Bandeau publicitaire rafraîchi": {
+   "newState": 0.08
+  },
+  "Tooltip au survol": {
+   "newState": 0.08
+  },
+  "Animation de points de frappe": {
+   "newState": 0.11
+  },
+  "Mise à jour d'un compteur de likes": {
+   "newState": 0.06
+  },
+  "Modale de paramètres": {
+   "newState": 0.96
+  },
+  "Menu déroulant ouvert": {
+   "newState": 0.93
+  },
+  "Tiroir latéral de panier": {
+   "newState": 0.95
+  },
+  "Changement d'onglet (contenu remplacé)": {
+   "newState": 0.97
+  },
+  "Navigation SPA vers une nouvelle page": {
+   "newState": 0.96
+  },
+  "Accordéon FAQ déplié": {
+   "newState": 0.46
+  },
+  "Bannière cookies apparue": {
+   "newState": 0.78
+  },
+  "Carrousel qui défile": {
+   "newState": 0.73
+  },
+  "Toast de confirmation": {
+   "newState": 0.07
+  },
+  "Liste de résultats de recherche chargée": {
+   "newState": 0.76
+  }
+ }
+}

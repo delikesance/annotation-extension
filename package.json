@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "node scripts/build.mjs --watch",
     "build": "node scripts/build.mjs",
-    "test": "node --test test/*.test.mjs",
-    "test:e2e": "node --test test/e2e/*.test.mjs",
+    "test": "node --env-file-if-exists=.env --test test/*.test.mjs",
+    "test:e2e": "node --env-file-if-exists=.env --test test/e2e/*.test.mjs",
     "test:all": "npm test && npm run test:e2e",
-    "package": "npm run build && node scripts/package.mjs"
+    "package": "npm run build && node scripts/package.mjs",
+    "jev": "node --env-file-if-exists=.env scripts/jev.mjs",
+    "eval:heuristics": "node --env-file-if-exists=.env scripts/eval-heuristics.mjs"
   },
   "keywords": [
     "chrome-extension",

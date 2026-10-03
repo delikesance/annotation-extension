@@ -1,0 +1,269 @@
+{
+ "comments": [
+  "Le bouton « Valider » est désactivé même quand le formulaire est rempli",
+  "La page reste blanche après la connexion",
+  "Les images ne se chargent pas sur Safari",
+  "Mettre le texte du pied de page en 14px et gris foncé",
+  "Le logo est trop collé au bord, ajouter 16px de marge",
+  "Passer le fond de la bannière en #F6F4EF",
+  "Remplacer « Cliquez ici » par « Voir les tarifs »",
+  "Il y a une coquille dans le paragraphe d'accueil : « recevoire »",
+  "Reformuler le message d'erreur pour qu'il soit plus poli",
+  "Je n'aime pas",
+  "Bof",
+  "À retravailler",
+  "C'est moche",
+  "Pas cohérent avec le reste",
+  "Corriger ça",
+  "Les cartes doivent s'afficher en grille de 3 colonnes sur desktop",
+  "La recherche renvoie une erreur quand on tape un accent",
+  "Le titre de la section doit dire « Nos engagements »"
+ ],
+ "domChanges": [
+  {
+   "name": "Notification toast d'erreur",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "alert",
+     "id": "",
+     "className": "snackbar",
+     "text": "Connexion perdue",
+     "width": 320,
+     "height": 56
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "",
+     "text": "Connexion perdue",
+     "width": 200,
+     "height": 20
+    },
+    {
+     "kind": "added",
+     "tag": "button",
+     "role": "",
+     "id": "",
+     "className": "close",
+     "text": "×",
+     "width": 24,
+     "height": 24
+    }
+   ]
+  },
+  {
+   "name": "Ouverture d'un sous-menu de navigation",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "ul",
+     "role": "",
+     "id": "",
+     "className": "submenu",
+     "text": "Produits Solutions Ressources Tarifs",
+     "width": 260,
+     "height": 220
+    },
+    {
+     "kind": "added",
+     "tag": "li",
+     "role": "",
+     "id": "",
+     "className": "",
+     "text": "Produits",
+     "width": 260,
+     "height": 44
+    },
+    {
+     "kind": "added",
+     "tag": "li",
+     "role": "",
+     "id": "",
+     "className": "",
+     "text": "Solutions",
+     "width": 260,
+     "height": 44
+    }
+   ]
+  },
+  {
+   "name": "Skeleton de chargement",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "skeleton",
+     "text": "",
+     "width": 600,
+     "height": 120
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "skeleton",
+     "text": "",
+     "width": 600,
+     "height": 120
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "skeleton",
+     "text": "",
+     "width": 600,
+     "height": 120
+    }
+   ]
+  },
+  {
+   "name": "Étape suivante d'un assistant (wizard)",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "form",
+     "role": "",
+     "id": "step-1",
+     "className": "wizard-step",
+     "text": "Informations personnelles Nom Prénom",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "form",
+     "role": "",
+     "id": "step-2",
+     "className": "wizard-step",
+     "text": "Adresse de livraison Rue Ville Code postal",
+     "width": 720,
+     "height": 520
+    },
+    {
+     "kind": "added",
+     "tag": "input",
+     "role": "",
+     "id": "",
+     "className": "field",
+     "text": "",
+     "width": 320,
+     "height": 40
+    }
+   ]
+  },
+  {
+   "name": "Heure de dernière synchro",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "time",
+     "role": "",
+     "id": "",
+     "className": "last-sync",
+     "text": "il y a 1 min",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "time",
+     "role": "",
+     "id": "",
+     "className": "last-sync",
+     "text": "il y a 2 min",
+     "width": 80,
+     "height": 16
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "",
+     "text": "",
+     "width": 4,
+     "height": 4
+    }
+   ]
+  },
+  {
+   "name": "Modale de confirmation de suppression",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "alertdialog",
+     "id": "confirm",
+     "className": "modal",
+     "text": "Supprimer ce projet ? Cette action est irréversible. Annuler Supprimer",
+     "width": 480,
+     "height": 220
+    },
+    {
+     "kind": "added",
+     "tag": "button",
+     "role": "",
+     "id": "",
+     "className": "btn danger",
+     "text": "Supprimer",
+     "width": 120,
+     "height": 40
+    },
+    {
+     "kind": "added",
+     "tag": "button",
+     "role": "",
+     "id": "",
+     "className": "btn",
+     "text": "Annuler",
+     "width": 120,
+     "height": 40
+    }
+   ]
+  },
+  {
+   "name": "Panneau de filtres",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "filters",
+     "className": "filters-panel",
+     "text": "Filtrer par prix Catégorie Marque Disponibilité",
+     "width": 320,
+     "height": 700
+    },
+    {
+     "kind": "added",
+     "tag": "label",
+     "role": "",
+     "id": "",
+     "className": "",
+     "text": "Prix max",
+     "width": 300,
+     "height": 24
+    },
+    {
+     "kind": "added",
+     "tag": "input",
+     "role": "",
+     "id": "",
+     "className": "",
+     "text": "",
+     "width": 300,
+     "height": 24
+    }
+   ]
+  }
+ ]
+}

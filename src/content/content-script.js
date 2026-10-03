@@ -12,13 +12,13 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'TOGGLE_ANNOTATOR') {
       if (window.AnnotatorUI) {
-        if (window.AnnotatorUI.isInspecting || window.AnnotatorUI.isPaused) {
+        if (window.AnnotatorUI.isActive) {
           window.AnnotatorUI.deactivate();
         } else {
           window.AnnotatorUI.activate();
         }
       }
-      sendResponse({ success: true, active: window.AnnotatorUI ? (window.AnnotatorUI.isInspecting || window.AnnotatorUI.isPaused) : false });
+      sendResponse({ success: true, active: window.AnnotatorUI ? window.AnnotatorUI.isActive : false });
       return false;
     }
 
@@ -32,31 +32,24 @@
 
     if (message.action === 'TOGGLE_PAUSE') {
       if (window.AnnotatorUI) {
-        window.AnnotatorUI.togglePause();
+        window.AnnotatorUI.toggleAnnotating();
       }
-      sendResponse({ success: true, isPaused: window.AnnotatorUI ? window.AnnotatorUI.isPaused : false });
+      sendResponse({ success: true, isInspecting: window.AnnotatorUI ? window.AnnotatorUI.isInspecting : false });
       return false;
     }
 
     if (message.action === 'GET_RAIL_STATE') {
-      sendResponse({ success: true, state: window.AnnotatorUI && window.AnnotatorUI.host ? window.AnnotatorUI.buildRailState() : null });
+      sendResponse({ success: true, state: window.AnnotatorUI && window.AnnotatorUI.host ? window.AnnotatorUI.buildPanelState() : null });
       return false;
     }
 
     if (message.action === 'RAIL_ACTION') {
       if (window.AnnotatorUI) {
-        window.AnnotatorUI.handleRailAction(message.op, message.index);
+        window.AnnotatorUI.handleRailAction(message.op, message);
       }
       sendResponse({ success: true });
       return false;
     }
 
-    if (message.action === 'UPDATE_AVAILABLE') {
-      if (window.AnnotatorUI && window.AnnotatorUI.showUpdateBadge) {
-        window.AnnotatorUI.showUpdateBadge(message.update);
-      }
-      sendResponse({ success: true });
-      return false;
-    }
   });
 })();

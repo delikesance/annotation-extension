@@ -316,11 +316,24 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
     return false;
   }
 
+  if (message.action === 'SESSION_SYNC') {
+    const tabId = sender.tab ? sender.tab.id : undefined;
+    if (tabId && message.session) {
+      chrome.storage.local.set({ ai_web_annotator_session: { ...message.session, activeTabId: tabId } })
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
+    sendResponse({ success: false });
+    return false;
+  }
+
   if (message.action === 'ANNOTATOR_STOPPED') {
     const tabId = sender.tab ? sender.tab.id : undefined;
     if (tabId && chrome.sidePanel && chrome.sidePanel.setOptions) {
       chrome.sidePanel.setOptions({ tabId, enabled: false }).catch(() => {});
     }
+    chrome.storage.local.remove(['ai_web_annotator_session']).catch(() => {});
     sendResponse({ success: true });
     return false;
   }

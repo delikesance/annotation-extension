@@ -1,0 +1,99 @@
+{
+ "comments": {
+  "Le bouton « Valider » est désactivé même quand le formulaire est rempli": {
+   "type": "bug",
+   "vague": 0.34
+  },
+  "La page reste blanche après la connexion": {
+   "type": "bug",
+   "vague": 0.63
+  },
+  "Les images ne se chargent pas sur Safari": {
+   "type": "bug",
+   "vague": 0.79
+  },
+  "Mettre le texte du pied de page en 14px et gris foncé": {
+   "type": "style",
+   "vague": 0.25
+  },
+  "Le logo est trop collé au bord, ajouter 16px de marge": {
+   "type": "style",
+   "vague": 0.15
+  },
+  "Passer le fond de la bannière en #F6F4EF": {
+   "type": "style",
+   "vague": 0.12
+  },
+  "Remplacer « Cliquez ici » par « Voir les tarifs »": {
+   "type": "text",
+   "vague": 0.23
+  },
+  "Il y a une coquille dans le paragraphe d'accueil : « recevoire »": {
+   "type": "text",
+   "vague": 0.32
+  },
+  "Reformuler le message d'erreur pour qu'il soit plus poli": {
+   "type": "text",
+   "vague": 0.78
+  },
+  "Je n'aime pas": {
+   "type": "style",
+   "vague": 0.94
+  },
+  "Bof": {
+   "type": "bug",
+   "vague": 0.96
+  },
+  "À retravailler": {
+   "type": "style",
+   "vague": 0.95
+  },
+  "C'est moche": {
+   "type": "style",
+   "vague": 0.93
+  },
+  "Pas cohérent avec le reste": {
+   "type": "style",
+   "vague": 0.91
+  },
+  "Corriger ça": {
+   "type": "bug",
+   "vague": 0.95
+  },
+  "Les cartes doivent s'afficher en grille de 3 colonnes sur desktop": {
+   "type": "style",
+   "vague": 0.25
+  },
+  "La recherche renvoie une erreur quand on tape un accent": {
+   "type": "bug",
+   "vague": 0.66
+  },
+  "Le titre de la section doit dire « Nos engagements »": {
+   "type": "text",
+   "vague": 0.14
+  }
+ },
+ "domChanges": {
+  "Notification toast d'erreur": {
+   "newState": 0.14
+  },
+  "Ouverture d'un sous-menu de navigation": {
+   "newState": 0.89
+  },
+  "Skeleton de chargement": {
+   "newState": 0.14
+  },
+  "Étape suivante d'un assistant (wizard)": {
+   "newState": 0.93
+  },
+  "Heure de dernière synchro": {
+   "newState": 0.05
+  },
+  "Modale de confirmation de suppression": {
+   "newState": 0.96
+  },
+  "Panneau de filtres": {
+   "newState": 0.82
+  }
+ }
+}

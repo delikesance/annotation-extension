@@ -1,52 +1,39 @@
 /**
- * UI Manager for AI Web Annotator
- * Manages the Shadow DOM lifecycle, hover inspector, numbered badges,
- * inline comment card, floating island HUD, Pause mode (free navigation),
- * and Multi-Page user journey sessions.
+ * UI Manager for AI Web Annotator (page side)
+ *
+ * Draws only the lightweight overlays on the page (hover highlight, target boxes,
+ * numbered pins, arrows) and owns the annotation/session state. Everything the user
+ * reads or types (list, comment editor, export, update notice, status messages)
+ * lives in Chrome's side panel, which this class feeds with RAIL_STATE messages and
+ * controls through RAIL_ACTION messages (see handleRailAction).
  */
 
 const ANNOTATION_TYPES = { style: 'Style', bug: 'Bug', text: 'Texte' };
-
-/**
- * Local heuristics behind the comment popover's suggestions. They are the seam
- * where a semantic model (e.g. a TypeSafe Choice for the type, a Noul for
- * "too vague") can later replace the keyword rules without touching the UI.
- */
-const AnnotationInsights = {
-  suggestType(comment) {
-    const c = (comment || '').toLowerCase();
-    if (/(bug|erreur|cass|ne marche|ne fonctionne|ne r[ée]agit|plante|bloqu|404|500|crash|inactif|ne s'affiche)/.test(c)) return 'bug';
-    if (/(texte|libell|reformul|traduc|faute|orthograph|titre|wording|copy|phrase|mot )/.test(c)) return 'text';
-    return 'style';
-  },
-  isVague(comment) {
-    const c = (comment || '').trim().toLowerCase();
-    if (!c) return false;
-    const words = c.split(/\s+/).length;
-    const hasSpecifics = /\d|px|rem|%|#[0-9a-f]{3,6}|[«"“].+[»"”]|\b(en|de|à|vers|par)\s+\w+/.test(c);
-    const vagueWord = /(trop|bizarre|moche|pas bien|à revoir|a revoir|améliorer|ameliorer|mieux|joli|propre)/.test(c);
-    return words <= 3 || (vagueWord && !hasSpecifics);
-  }
-};
 
 class AnnotatorUIManager {
   constructor() {
     this.host = null;
     this.shadow = null;
-    this.hud = null;
     this.highlightBox = null;
     this.highlightLabel = null;
-    this.activeCommentCard = null;
 
-    this.annotations = []; // Current page annotations: { id, index, element, comment, badgeEl, boxEl, arrowEl, metadata }
+    this.annotations = []; // Saved annotations of the current screen: { id, index, element, comment, type, badgeEl, boxEl, arrowEl, metadata }
     this.hoveredElement = null;
     this.selectedAnnotation = null;
-    this.isInspecting = false;
-    this.isPaused = false;
+    this.isActive = false; // the annotator is running on this page (panel open, session alive)
+    this.isInspecting = false; // annotate mode: page frozen, clicking an element places an annotation
+    this.isPaused = false; // legacy mirror of !isInspecting while active (free navigation)
     this.isEditingComment = false;
-    this.activeExportModal = null;
+    this.currentEditingAnnotation = null;
+    this.screenShot = null; // Promise<string|null>: screenshot of the current screen incl. its pins
+    this.domObserver = null;
+    this.domChangeTimer = null;
+    this.domChangeCount = 0;
+    this.domChangeLog = [];
+    this.pendingFinalize = false;
+    this.exportView = null; // { pages, prompts, payload } while the panel shows the export view
     this.lastExportData = null;
-    this.currentExportFormat = 'agent'; // 'agent' | 'github' | 'json'
+    this.status = null; // { id, text } transient message shown in the panel
 
     // Multi-page session tracking
     this.session = {
@@ -60,6 +47,8 @@ class AnnotatorUIManager {
     this.boundOnMouseMove = this.onMouseMove.bind(this);
     this.boundOnClick = this.onClick.bind(this);
     this.boundOnKeyDown = this.onKeyDown.bind(this);
+    this.boundOnPageHide = this.onPageHide.bind(this);
+    this.lastShotDataUrl = null;
   }
 
   init() {
@@ -86,7 +75,6 @@ class AnnotatorUIManager {
     this.shadow.appendChild(styleLink);
 
     this.createHighlightBox();
-    this.createHUD();
   }
 
   createHighlightBox() {
@@ -100,306 +88,126 @@ class AnnotatorUIManager {
     this.shadow.appendChild(this.highlightBox);
   }
 
-  createHUD() {
-    this.hud = document.createElement('div');
-    this.hud.className = 'ai-annotator-hud ai-hud-collapsed'; // starts as a pill so the page stays fully reachable
-    this.hud.innerHTML = `
-      <div class="ai-rail-header">
-        <div class="ai-rail-title-row">
-          <div class="ai-hud-status" id="ai-hud-status-badge">
-            <span class="ai-pulse-dot"></span>
-            <span class="ai-hud-status-text" id="ai-hud-status-text">Annotation</span>
-          </div>
-          <div class="ai-rail-tools">
-            <button class="ai-hud-btn ai-hud-btn-pause" id="ai-btn-pause" title="Mettre en pause pour naviguer librement (touche P)">
-              <span id="ai-btn-pause-text">Pause</span>
-              <span class="ai-kbd">P</span>
-            </button>
-            <button class="ai-hud-btn-icon ai-hud-btn-minimize" id="ai-btn-minimize" aria-label="Ouvrir le panneau" title="Ouvrir le panneau">
-              <svg class="ai-icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
-              <span class="ai-open-label">Ouvrir</span>
-            </button>
-            <button class="ai-hud-btn-icon ai-hud-btn-close" id="ai-btn-cancel" aria-label="Quitter le mode annotation" title="Quitter le mode annotation (Échap)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-        </div>
-        <div class="ai-hud-counter" id="ai-counter">0 annotation</div>
-      </div>
-      <div class="ai-rail-list" id="ai-rail-list"></div>
-      <div class="ai-rail-footer">
-        <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Exporter les annotations (Ctrl+E)">
-          <span>Exporter la session</span>
-          <span class="ai-kbd">Ctrl E</span>
-        </button>
-        <button class="ai-hud-btn ai-hud-btn-next" id="ai-btn-next-screen" title="Valider cet écran et passer au suivant (touche N)">
-          <span>Écran suivant</span>
-          <span class="ai-kbd">N</span>
-        </button>
-      </div>
-    `;
+  // ------------------------------------------------------------------
+  // Side panel bridge
+  // ------------------------------------------------------------------
 
-    this.hud.querySelector('#ai-btn-pause').addEventListener('click', () => this.togglePause());
-    this.hud.querySelector('#ai-btn-next-screen').addEventListener('click', () => this.nextScreen());
-    this.hud.querySelector('#ai-btn-export').addEventListener('click', () => this.finishAndShowExportModal());
-    this.hud.querySelector('#ai-btn-cancel').addEventListener('click', () => this.deactivate());
-    this.hud.querySelector('#ai-btn-minimize').addEventListener('click', () => this.openRail());
-
-    this.shadow.appendChild(this.hud);
-    this.renderRail();
-    this.checkUpdateStatus();
+  getPreviousPointsCount() {
+    return (this.session && this.session.pages)
+      ? this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0)
+      : 0;
   }
 
-  setHudVisible(visible) {
-    if (!this.hud) return;
-    this.hud.style.display = visible ? 'flex' : 'none';
+  getCounterText() {
+    const totalCount = this.getPreviousPointsCount() + this.annotations.length;
+    const currentScreen = (this.session && this.session.pages) ? this.session.pages.length + 1 : 1;
+    if (currentScreen > 1) {
+      return `Écran #${currentScreen} (${totalCount} point${totalCount > 1 ? 's' : ''})`;
+    }
+    return `${totalCount} annotation${totalCount > 1 ? 's' : ''}`;
   }
 
-  /** Snapshot of the session for the side panel. */
-  buildRailState() {
-    const previousScreens = (this.session && this.session.pages) ? this.session.pages.length : 0;
-    const counter = this.shadow && this.shadow.getElementById('ai-counter');
+  getSelectorOf(annotation) {
+    return (annotation.metadata && annotation.metadata.element && annotation.metadata.element.cssSelector)
+      || (annotation.element && annotation.element.tagName ? annotation.element.tagName.toLowerCase() : '');
+  }
+
+  /** Everything the side panel needs to render, as plain serialisable data. */
+  buildPanelState() {
+    const editing = this.currentEditingAnnotation;
     return {
-      active: Boolean(this.isInspecting || this.isPaused),
-      isPaused: this.isPaused,
-      counterText: counter ? counter.textContent : '',
-      previousScreens,
+      active: this.isActive,
+      mode: this.isInspecting ? 'annotate' : 'browse',
+      isPaused: !this.isInspecting,
+      hostname: window.location.hostname,
+      counterText: this.getCounterText(),
+      previousScreens: (this.session && this.session.pages) ? this.session.pages.length : 0,
       annotations: this.annotations.map(a => ({
         index: a.index,
         type: a.type || 'style',
         comment: a.comment || '',
-        selector: (a.metadata && a.metadata.element && a.metadata.element.cssSelector) || a.element.tagName.toLowerCase()
-      }))
+        selector: this.getSelectorOf(a)
+      })),
+      editing: editing ? {
+        index: editing.index,
+        isNew: !this.annotations.includes(editing),
+        comment: editing.comment || '',
+        type: editing.type || null,
+        tag: editing.element && editing.element.tagName ? editing.element.tagName.toLowerCase() : '',
+        selector: this.getSelectorOf(editing) || (editing.element && editing.element.tagName ? editing.element.tagName.toLowerCase() : '')
+      } : null,
+      status: this.status,
+      exportView: this.exportView
     };
   }
 
-  broadcastRailState(overrides) {
+  broadcastPanelState(overrides) {
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
     try {
-      const result = chrome.runtime.sendMessage({ action: 'RAIL_STATE', state: { ...this.buildRailState(), ...(overrides || {}) } });
+      const result = chrome.runtime.sendMessage({ action: 'RAIL_STATE', state: { ...this.buildPanelState(), ...(overrides || {}) } });
       if (result && result.catch) result.catch(() => {});
     } catch (_) {}
   }
 
+  /** Short feedback line shown in the panel (replaces on-page toasts). */
+  showToast(message) {
+    this.status = { id: Date.now() + Math.random(), text: message };
+    this.broadcastPanelState();
+  }
+
   /** Executes an action requested from the side panel. */
-  handleRailAction(op, index) {
-    if (op === 'pause') this.togglePause();
-    else if (op === 'next') this.nextScreen();
-    else if (op === 'export') this.finishAndShowExportModal();
-    else if (op === 'close') this.deactivate();
-    else if (op === 'open') {
-      const ann = this.annotations.find(a => a.index === index);
-      if (ann && this.isInspecting) {
-        this.selectedAnnotation = ann;
-        this.openCommentModal(ann);
+  handleRailAction(op, payload = {}) {
+    switch (op) {
+      case 'annotate': return this.toggleAnnotating();
+      case 'next': return this.nextScreen();
+      case 'export': return this.finishAndShowExport();
+      case 'close': return this.deactivate();
+      case 'back': return this.closeExportView();
+      case 'open': {
+        const ann = this.annotations.find(a => a.index === payload.index);
+        if (ann && this.isInspecting) {
+          this.selectedAnnotation = ann;
+          this.openEditor(ann);
+        }
+        return;
       }
+      case 'save': return this.saveEditing(payload.comment, payload.type);
+      case 'cancel': return this.cancelActiveComment();
+      case 'delete': {
+        const ann = this.annotations.find(a => a.index === payload.index) || this.currentEditingAnnotation;
+        if (ann) this.deleteAnnotation(ann);
+        return;
+      }
+      default: return undefined;
     }
   }
 
-  /** Asks the background to open Chrome's side panel; falls back to the in-page overlay rail. */
-  async openRail() {
+  requestSidePanel() {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
     try {
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        const res = await chrome.runtime.sendMessage({ action: 'OPEN_SIDE_PANEL' });
-        if (res && res.success) return;
-      }
+      const result = chrome.runtime.sendMessage({ action: 'OPEN_SIDE_PANEL' });
+      if (result && result.catch) result.catch(() => {});
     } catch (_) {}
-    this.hud.classList.toggle('ai-hud-collapsed');
-  }
-
-  /** Rebuilds the annotation list shown in the rail. */
-  renderRail() {
-    this.broadcastRailState();
-    const list = this.hud && this.hud.querySelector('#ai-rail-list');
-    if (!list) return;
-
-    list.textContent = '';
-    const previous = (this.session && this.session.pages) ? this.session.pages.length : 0;
-    if (previous > 0) {
-      const note = document.createElement('div');
-      note.className = 'ai-rail-previous';
-      note.textContent = `${previous} écran${previous > 1 ? 's' : ''} déjà capturé${previous > 1 ? 's' : ''}`;
-      list.appendChild(note);
-    }
-
-    const pending = this.annotations.filter(a => a.metadata || a.comment !== undefined);
-    if (pending.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'ai-rail-empty';
-      empty.textContent = 'Cliquez un élément de la page pour ajouter un repère.';
-      list.appendChild(empty);
-      return;
-    }
-
-    for (const ann of pending) {
-      const type = ANNOTATION_TYPES[ann.type] ? ann.type : 'style';
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'ai-rail-item';
-
-      const pin = document.createElement('span');
-      pin.className = 'ai-rail-pin';
-      pin.textContent = ann.index;
-
-      const body = document.createElement('span');
-      body.className = 'ai-rail-item-body';
-
-      const tag = document.createElement('span');
-      tag.className = `ai-type-tag ai-type-${type}`;
-      tag.textContent = ANNOTATION_TYPES[type];
-
-      const text = document.createElement('span');
-      text.className = 'ai-rail-item-text' + (ann.comment ? '' : ' is-empty');
-      text.textContent = ann.comment || '(Aucun commentaire)';
-
-      const sel = document.createElement('span');
-      sel.className = 'ai-rail-item-sel';
-      sel.textContent = (ann.metadata && ann.metadata.element && ann.metadata.element.cssSelector)
-        || ann.element.tagName.toLowerCase();
-
-      body.append(tag, text, sel);
-      item.append(pin, body);
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (!this.isInspecting) return;
-        this.selectedAnnotation = ann;
-        this.openCommentModal(ann);
-      });
-      list.appendChild(item);
-    }
-  }
-
-  async checkUpdateStatus() {
-    try {
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        const response = await chrome.runtime.sendMessage({ action: 'GET_UPDATE_INFO' });
-        if (response && response.update) {
-          this.showUpdateBadge(response.update);
-        }
-      }
-    } catch (_) {}
-  }
-
-  showUpdateBadge(update) {
-    if (!update || !this.hud) return;
-    let updateBtn = this.hud.querySelector('#ai-btn-update');
-    if (!updateBtn) {
-      updateBtn = document.createElement('button');
-      updateBtn.className = 'ai-hud-btn ai-hud-btn-update';
-      updateBtn.id = 'ai-btn-update';
-      updateBtn.title = `Nouvelle version v${update.version} disponible ! Cliquez pour voir ou télécharger.`;
-      updateBtn.innerHTML = `
-        <span class="ai-update-tag">MàJ v${update.version}</span>
-      `;
-      updateBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.showUpdateModal(update);
-      });
-
-      const exportBtn = this.hud.querySelector('#ai-btn-export');
-      if (exportBtn && exportBtn.parentNode) {
-        exportBtn.parentNode.insertBefore(updateBtn, exportBtn);
-      } else {
-        this.hud.appendChild(updateBtn);
-      }
-    }
-  }
-
-  showUpdateModal(update) {
-    if (!this.shadow) return;
-    const existing = this.shadow.querySelector('.ai-update-modal-backdrop');
-    if (existing) existing.remove();
-
-    const backdrop = document.createElement('div');
-    backdrop.className = 'ai-update-modal-backdrop';
-    backdrop.innerHTML = `
-      <div class="ai-update-modal-card">
-        <div class="ai-update-modal-header">
-          <div class="ai-update-header-title">
-            
-            <div>
-              <h3 style="margin:0;font-size:15px;font-weight:700;color:#1C1B19;">Mise à jour disponible</h3>
-              <p style="margin:2px 0 0;font-size:12px;color:#5F5B54;">Version v${String(update.version || update.tagName).replace(/^v/, '')}</p>
-            </div>
-          </div>
-          <button class="ai-update-close-btn" id="ai-update-close" title="Fermer">✕</button>
-        </div>
-        <div class="ai-update-modal-body">
-          <p style="margin:0 0 10px;font-size:13px;color:#3a3835;line-height:1.5;">
-            Une nouvelle version de <strong>AI Web Annotator</strong> est disponible sur Forgejo !
-          </p>
-          ${update.releaseNotes ? `
-            <div class="ai-update-notes">
-              <div style="font-size:11px;font-weight:600;color:#5F5B54;text-transform:uppercase;margin-bottom:4px;">Notes de version :</div>
-              <pre style="margin:0;font-size:12px;color:#1C1B19;white-space:pre-wrap;font-family:inherit;">${this.escapeHtml(update.releaseNotes)}</pre>
-            </div>
-          ` : ''}
-        </div>
-        <div class="ai-update-modal-footer">
-          <a href="${update.downloadUrl || update.releaseUrl}" target="_blank" class="ai-update-btn-download" id="ai-update-download-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            <span>Télécharger (.zip)</span>
-          </a>
-          <a href="${update.releaseUrl || update.downloadUrl}" target="_blank" class="ai-update-btn-view" id="ai-update-release-btn">
-            <span>Voir la Release</span>
-          </a>
-        </div>
-      </div>
-    `;
-
-    backdrop.querySelector('#ai-update-close').addEventListener('click', () => backdrop.remove());
-    backdrop.addEventListener('click', (e) => {
-      if (e.target === backdrop) backdrop.remove();
-    });
-
-    const dlBtn = backdrop.querySelector('#ai-update-download-btn');
-    if (dlBtn) {
-      dlBtn.addEventListener('click', () => {
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'OPEN_URL', url: update.downloadUrl || update.releaseUrl });
-        }
-      });
-    }
-
-    const relBtn = backdrop.querySelector('#ai-update-release-btn');
-    if (relBtn) {
-      relBtn.addEventListener('click', () => {
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'OPEN_URL', url: update.releaseUrl || update.downloadUrl });
-        }
-      });
-    }
-
-    this.shadow.appendChild(backdrop);
   }
 
   updateCounter() {
-    const counter = this.shadow.getElementById('ai-counter');
-    if (!counter) return;
-
-    const previousCount = (this.session && this.session.pages)
-      ? this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0)
-      : 0;
-
-    const totalCount = previousCount + this.annotations.length;
-    const currentScreen = (this.session && this.session.pages) ? this.session.pages.length + 1 : 1;
-
-    if (currentScreen > 1) {
-      counter.textContent = `Écran #${currentScreen} (${totalCount} point${totalCount > 1 ? 's' : ''})`;
-    } else {
-      counter.textContent = `${totalCount} annotation${totalCount > 1 ? 's' : ''}`;
-    }
-    this.renderRail();
+    this.broadcastPanelState();
   }
 
+  updateHUDState() {
+    this.broadcastPanelState();
+  }
+
+  // ------------------------------------------------------------------
+  // Lifecycle
+  // ------------------------------------------------------------------
+
+  /** Starts the annotator in free-navigation mode; annotating is entered with the "Ajouter une annotation" action. */
   activate() {
     this.init();
-    this.isInspecting = true;
-    this.isPaused = false;
+    this.isActive = true;
+    this.isInspecting = false;
+    this.isPaused = true;
 
     // Start or resume multi-page session
     if (!this.session.isActive) {
@@ -410,84 +218,188 @@ class AnnotatorUIManager {
       this.syncSessionToStorage();
     }
 
+    window.removeEventListener('mousemove', this.boundOnMouseMove, true);
+    window.removeEventListener('click', this.boundOnClick, true);
+    window.removeEventListener('keydown', this.boundOnKeyDown, true);
+    window.addEventListener('mousemove', this.boundOnMouseMove, true);
+    window.addEventListener('click', this.boundOnClick, true);
+    window.addEventListener('keydown', this.boundOnKeyDown, true);
+    window.removeEventListener('pagehide', this.boundOnPageHide);
+    window.addEventListener('pagehide', this.boundOnPageHide);
+
+    this.host.style.display = 'block';
+    this.startDomObserver();
+    this.updateHUDState();
+    this.showToast('Annotateur prêt : cliquez sur « Ajouter une annotation ».');
+  }
+
+  toggleAnnotating() {
+    if (this.isInspecting) {
+      this.leaveAnnotateMode();
+    } else {
+      this.enterAnnotateMode();
+    }
+  }
+
+  /** Annotate mode: the page is frozen and clicking an element places an annotation. Several can be placed in a row. */
+  enterAnnotateMode() {
+    if (!this.isActive) return;
+    this.isInspecting = true;
+    this.isPaused = false;
+    this.exportView = null;
+
     if (typeof window !== 'undefined' && window.DOMFreeze) {
       window.DOMFreeze.enable();
     }
 
-    window.addEventListener('mousemove', this.boundOnMouseMove, true);
-    window.addEventListener('click', this.boundOnClick, true);
-    window.addEventListener('keydown', this.boundOnKeyDown, true);
-
-    this.host.style.display = 'block';
     this.updateHUDState();
-    this.checkUpdateStatus();
-    this.showToast('Mode Annotation activé : Cliquez sur un élément pour annoter.');
+    this.syncSessionToStorage();
+    this.showToast('Mode annotation : cliquez sur un élément de la page.');
   }
 
-  togglePause() {
-    if (this.isPaused) {
-      this.resume();
-    } else {
-      this.pause();
-    }
-  }
-
-  pause() {
-    if (!this.isInspecting && !this.isPaused) return;
-    this.isPaused = true;
+  /** Back to free navigation: open menus, scroll, navigate; DOM changes start a new screen. */
+  leaveAnnotateMode() {
+    if (!this.isActive) return;
     this.isInspecting = false;
+    this.isPaused = true;
 
     if (this.highlightBox) {
       this.highlightBox.style.display = 'none';
       this.hoveredElement = null;
     }
 
-    if (this.activeCommentCard) {
+    if (this.currentEditingAnnotation) {
       this.cancelActiveComment();
     }
 
-    // Unfreeze DOM so user can freely click, scroll, navigate, fill forms
     if (typeof window !== 'undefined' && window.DOMFreeze) {
       window.DOMFreeze.disable();
     }
 
     this.updateHUDState();
     this.syncSessionToStorage();
-    this.showToast('Mode Pause activé : Vous pouvez interagir et naviguer librement.');
+    this.showToast('Navigation libre : ouvrez ce dont vous avez besoin.');
   }
 
-  resume() {
-    this.isPaused = false;
-    this.isInspecting = true;
+  // ------------------------------------------------------------------
+  // Automatic new screens when the page changes
+  // ------------------------------------------------------------------
 
-    // Re-freeze DOM for element inspection
-    if (typeof window !== 'undefined' && window.DOMFreeze) {
-      window.DOMFreeze.enable();
+  startDomObserver() {
+    if (this.domObserver || typeof MutationObserver === 'undefined') return;
+    this.domObserver = new MutationObserver((records) => this.onDomMutations(records));
+    this.domObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  stopDomObserver() {
+    if (this.domObserver) this.domObserver.disconnect();
+    this.domObserver = null;
+    clearTimeout(this.domChangeTimer);
+    this.domChangeTimer = null;
+    this.domChangeCount = 0;
+  }
+
+  onDomMutations(records) {
+    if (!this.isActive || this.annotations.length === 0) return;
+    let changed = 0;
+    for (const record of records) {
+      if (this.host && (record.target === this.host || this.host.contains(record.target))) continue;
+      for (const node of record.addedNodes) {
+        if (node.nodeType === 1 && node !== this.host) { changed++; this.recordDomChange('added', node); }
+      }
+      for (const node of record.removedNodes) {
+        if (node.nodeType === 1 && node !== this.host) { changed++; this.recordDomChange('removed', node); }
+      }
     }
-
-    this.updateHUDState();
-    this.syncSessionToStorage();
-    this.showToast('Mode Annotation réactivé : Cliquez sur un élément pour annoter.');
+    if (changed === 0) return;
+    this.domChangeCount += changed;
+    if (!this.domChangeTimer) {
+      // Evaluate after a short window (not reset by new mutations, so noisy pages still settle).
+      this.domChangeTimer = setTimeout(() => {
+        this.domChangeTimer = null;
+        const count = this.domChangeCount;
+        const changes = this.domChangeLog;
+        this.domChangeCount = 0;
+        this.domChangeLog = [];
+        if (count >= AnnotatorUIManager.DOM_CHANGE_THRESHOLD) this.decideScreenChange(changes);
+      }, AnnotatorUIManager.DOM_CHANGE_WINDOW_MS);
+    }
   }
 
-  async nextScreen() {
-    if (this.annotations.length === 0) {
-      this.showToast('Ajoutez au moins une annotation sur cet écran avant de passer au suivant.');
+  /** Compact, serialisable description of a changed element, for the screen-change decision. */
+  recordDomChange(kind, node) {
+    if (this.domChangeLog.length >= 12) return;
+    let width = 0;
+    let height = 0;
+    if (kind === 'added' && node.getBoundingClientRect) {
+      const rect = node.getBoundingClientRect();
+      width = Math.round(rect.width);
+      height = Math.round(rect.height);
+    }
+    this.domChangeLog.push({
+      kind,
+      tag: node.tagName ? node.tagName.toLowerCase() : '',
+      role: (node.getAttribute && (node.getAttribute('role') || node.getAttribute('aria-label'))) || '',
+      id: node.id || '',
+      className: typeof node.className === 'string' ? node.className.slice(0, 60) : '',
+      text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+      width,
+      height
+    });
+  }
+
+  /**
+   * A burst of DOM changes happened under saved annotations: is it a new UI state (menu, dialog,
+   * panel, route...) or ambient noise (clock, ticker, spinner...)? Decided locally by
+   * AnnotatorUIManager.isNewScreen; the rule is evaluated against Jev judgments in development
+   * (scripts/eval-heuristics.mjs).
+   */
+  decideScreenChange(changes) {
+    const isNewScreen = AnnotatorUIManager.isNewScreen(changes);
+    this.lastScreenDecision = { source: 'local', isNewScreen };
+    if (isNewScreen) this.finalizeScreenOnChange();
+  }
+
+  /** The page changed under saved annotations: keep what was annotated as a finished screen and start a new one. */
+  async finalizeScreenOnChange() {
+    if (!this.isActive || this.annotations.length === 0) return;
+    if (this.currentEditingAnnotation) {
+      this.pendingFinalize = true;
       return;
     }
+    this.pendingFinalize = false;
 
-    if (this.activeCommentCard) {
-      this.closeCommentModal();
-    }
+    const dataUrl = (await this.screenShot) || await this.captureScreen();
+    if (!this.session.pages) this.session.pages = [];
+    const stepIndex = this.session.pages.length + 1;
+    this.session.pages.push(this.snapshotPage(stepIndex, dataUrl));
+    this.clearAnnotationOverlays();
+    this.screenShot = null;
+    this.updateCounter();
+    this.syncSessionToStorage();
+    this.showToast(`Changement détecté : écran #${stepIndex} enregistré, nouvel écran en cours.`);
+  }
 
-    this.showToast('Capture et validation de l\'écran...');
-
-    if (this.hud) this.setHudVisible(false);
+  /** Re-captures the current screen (with all its pins) so it is ready if the page changes next. */
+  refreshScreenShot() {
     if (this.highlightBox) this.highlightBox.style.display = 'none';
+    this.screenShot = new Promise((resolve) => setTimeout(resolve, 60))
+      .then(() => this.captureScreen())
+      .then((dataUrl) => { this.lastShotDataUrl = dataUrl; return dataUrl; })
+      .catch(() => null);
+  }
 
-    await new Promise(r => setTimeout(r, 120));
+  clearAnnotationOverlays() {
+    for (const ann of this.annotations) {
+      if (ann.badgeEl) ann.badgeEl.remove();
+      if (ann.boxEl) ann.boxEl.remove();
+      if (ann.arrowEl) ann.arrowEl.remove();
+    }
+    this.annotations = [];
+  }
 
-    let screenDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  async captureScreen() {
+    let screenDataUrl = AnnotatorUIManager.PLACEHOLDER_PNG;
     try {
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         const response = await chrome.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
@@ -496,112 +408,101 @@ class AnnotatorUIManager {
         }
       }
     } catch (_) {}
+    return screenDataUrl;
+  }
 
-    if (this.hud) this.setHudVisible(true);
-
-    if (!this.session.pages) {
-      this.session.pages = [];
-    }
-
-    const stepIndex = this.session.pages.length + 1;
-
-    this.session.pages.push({
-      stepIndex: stepIndex,
+  snapshotPage(stepIndex, dataUrl) {
+    return {
+      stepIndex,
       url: window.location.href,
       title: document.title,
-      dataUrl: screenDataUrl,
+      dataUrl,
       annotations: this.annotations.map(a => ({
         index: a.index,
         comment: a.comment,
         type: a.type || 'style',
         metadata: a.metadata || { element: { tag: a.element.tagName } }
       }))
-    });
-
-    // Clear visual annotations on current screen
-    for (const ann of this.annotations) {
-      if (ann.badgeEl) ann.badgeEl.remove();
-      if (ann.boxEl) ann.boxEl.remove();
-      if (ann.arrowEl) ann.arrowEl.remove();
-    }
-    this.annotations = [];
-
-    // Switch to free navigation mode so user can scroll/click/navigate to next view
-    this.pause();
-
-    this.updateCounter();
-    this.syncSessionToStorage();
-    this.showToast(`Écran #${stepIndex} validé ! Naviguez librement et reprenez (P) pour l'écran #${stepIndex + 1}.`);
+    };
   }
 
-  updateHUDState() {
-    if (!this.hud) return;
-
-    const statusBadge = this.hud.querySelector('#ai-hud-status-badge');
-    const statusText = this.hud.querySelector('#ai-hud-status-text');
-    const pauseBtn = this.hud.querySelector('#ai-btn-pause');
-    const pauseText = this.hud.querySelector('#ai-btn-pause-text');
-
-    if (this.isPaused) {
-      this.hud.classList.add('ai-hud-paused');
-      if (statusBadge) statusBadge.classList.add('is-paused');
-      if (statusText) statusText.textContent = 'En pause';
-      if (pauseBtn) {
-        pauseBtn.classList.add('is-paused');
-        pauseBtn.innerHTML = `<span id="ai-btn-pause-text">Reprendre</span><span class="ai-kbd">P</span>`;
-      }
-    } else {
-      this.hud.classList.remove('ai-hud-paused');
-      if (statusBadge) statusBadge.classList.remove('is-paused');
-      if (statusText) statusText.textContent = 'Annotation';
-      if (pauseBtn) {
-        pauseBtn.classList.remove('is-paused');
-        pauseBtn.innerHTML = `<span id="ai-btn-pause-text">Pause</span><span class="ai-kbd">P</span>`;
-      }
+  async nextScreen() {
+    if (this.annotations.length === 0) {
+      this.showToast('Ajoutez au moins une annotation sur cet écran avant de passer au suivant.');
+      return;
     }
 
+    if (this.currentEditingAnnotation) {
+      this.cancelActiveComment();
+    }
+
+    this.showToast('Capture et validation de l\'écran...');
+    if (this.highlightBox) this.highlightBox.style.display = 'none';
+
+    const screenDataUrl = await this.captureScreen();
+
+    if (!this.session.pages) {
+      this.session.pages = [];
+    }
+
+    const stepIndex = this.session.pages.length + 1;
+    this.session.pages.push(this.snapshotPage(stepIndex, screenDataUrl));
+
+    // Clear visual annotations on current screen
+    this.clearAnnotationOverlays();
+
+    this.screenShot = null;
     this.updateCounter();
+    this.syncSessionToStorage();
+    this.showToast(`Écran #${stepIndex} enregistré. Continuez sur l'écran #${stepIndex + 1}.`);
   }
 
   restoreFromSession(sessionData) {
     if (!sessionData || !sessionData.isActive) return;
 
     this.session = sessionData;
-    const previousPointsCount = this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0);
-    this.session.startingIndex = previousPointsCount + 1;
+    this.session.startingIndex = this.getPreviousPointsCount() + 1;
 
     this.init();
     this.host.style.display = 'block';
 
-    // Start in active or paused state
-    if (sessionData.isPaused) {
-      this.pause();
-    } else {
-      this.activate();
-    }
+    this.activate();
+    if (sessionData.isInspecting) this.enterAnnotateMode();
 
     this.updateCounter();
     this.showToast(`Étape #${this.session.pages.length + 1} de la session : ${document.title}`);
   }
 
-  async syncSessionToStorage() {
-    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+  buildSessionPayload() {
+    return {
+      id: this.session.id,
+      isActive: this.session.isActive,
+      isInspecting: this.isInspecting,
+      pages: this.session.pages,
+      currentPage: {
+        url: window.location.href,
+        title: document.title,
+        annotationsCount: this.annotations.length
+      }
+    };
+  }
 
+  /** Persists the session through the background, which knows this tab's id (needed to restore it after a navigation). */
+  syncSessionToStorage() {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
     try {
-      const payload = {
-        id: this.session.id,
-        isActive: this.session.isActive,
-        isPaused: this.isPaused,
-        pages: this.session.pages,
-        currentPage: {
-          url: window.location.href,
-          title: document.title,
-          annotationsCount: this.annotations.length
-        }
-      };
-
-      await chrome.storage.local.set({ ai_web_annotator_session: payload });
+      const result = chrome.runtime.sendMessage({ action: 'SESSION_SYNC', session: this.buildSessionPayload() });
+      if (result && result.catch) result.catch(() => {});
     } catch (_) {}
+  }
+
+  /** The page is going away (navigation): keep its annotated screen in the session so the next page continues it. */
+  onPageHide() {
+    if (!this.isActive || this.annotations.length === 0) return;
+    if (!this.session.pages) this.session.pages = [];
+    const stepIndex = this.session.pages.length + 1;
+    this.session.pages.push(this.snapshotPage(stepIndex, this.lastShotDataUrl || AnnotatorUIManager.PLACEHOLDER_PNG));
+    this.syncSessionToStorage();
   }
 
   async clearSessionStorage() {
@@ -614,10 +515,16 @@ class AnnotatorUIManager {
   }
 
   deactivate() {
+    this.isActive = false;
     this.isInspecting = false;
     this.isPaused = false;
+    this.stopDomObserver();
+    this.screenShot = null;
     this.isEditingComment = false;
+    this.currentEditingAnnotation = null;
     this.selectedAnnotation = null;
+    this.exportView = null;
+    this.status = null;
 
     if (typeof window !== 'undefined' && window.DOMFreeze) {
       window.DOMFreeze.disable();
@@ -626,41 +533,30 @@ class AnnotatorUIManager {
     window.removeEventListener('mousemove', this.boundOnMouseMove, true);
     window.removeEventListener('click', this.boundOnClick, true);
     window.removeEventListener('keydown', this.boundOnKeyDown, true);
+    window.removeEventListener('pagehide', this.boundOnPageHide);
 
     if (this.highlightBox) {
       this.highlightBox.style.display = 'none';
     }
 
-    if (this.activeCommentCard) {
-      this.activeCommentCard.remove();
-      this.activeCommentCard = null;
-    }
-
-    if (this.activeExportModal) {
-      this.activeExportModal.remove();
-      this.activeExportModal = null;
-    }
-
-    for (const ann of this.annotations) {
-      if (ann.badgeEl) ann.badgeEl.remove();
-      if (ann.boxEl) ann.boxEl.remove();
-      if (ann.arrowEl) ann.arrowEl.remove();
-    }
-    this.annotations = [];
-    this.updateCounter();
+    this.clearAnnotationOverlays();
 
     if (this.host) {
       this.host.style.display = 'none';
     }
 
     this.clearSessionStorage();
+    this.broadcastPanelState({ active: false, annotations: [], editing: null, exportView: null, status: null, previousScreens: 0, counterText: '0 annotation' });
 
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage({ action: 'SET_BADGE', text: '' }).catch(() => {});
       chrome.runtime.sendMessage({ action: 'ANNOTATOR_STOPPED' }).catch(() => {});
     }
-    this.broadcastRailState({ active: false });
   }
+
+  // ------------------------------------------------------------------
+  // Page interaction
+  // ------------------------------------------------------------------
 
   onMouseMove(e) {
     if (!this.isInspecting || this.isPaused || this.isEditingComment) return;
@@ -719,59 +615,61 @@ class AnnotatorUIManager {
       return;
     }
 
+    // The click is a user gesture: make sure the side panel (where the comment is typed) is open.
+    this.requestSidePanel();
     this.createAnnotationPoint(target);
   }
 
   onKeyDown(e) {
+    if (!this.isActive) return;
+
     if (e.key === 'Escape') {
-      if (this.activeExportModal) {
-        this.activeExportModal.remove();
-        this.activeExportModal = null;
-      } else if (this.activeCommentCard) {
+      if (this.exportView) {
+        this.closeExportView();
+      } else if (this.currentEditingAnnotation) {
         this.cancelActiveComment();
-      } else {
-        this.deactivate();
+      } else if (this.isInspecting) {
+        this.leaveAnnotateMode();
       }
       return;
     }
 
-    // 'P' key toggles Pause (when not typing in an input/textarea)
-    if ((e.key === 'p' || e.key === 'P') && !this.isEditingComment && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
-      e.preventDefault();
-      this.togglePause();
-      return;
-    }
+    // Single-letter shortcuts only apply in annotate mode, where the page is frozen: in free navigation the user types in the page.
+    const active = document.activeElement;
+    const typing = Boolean(active && (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable));
 
-    // 'N' key validates current screen and prepares next screen
-    if ((e.key === 'n' || e.key === 'N') && !this.isEditingComment && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
-      e.preventDefault();
-      this.nextScreen();
-      return;
+    if (this.isInspecting && !this.isEditingComment && !typing) {
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        this.leaveAnnotateMode();
+        return;
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        this.nextScreen();
+        return;
+      }
     }
 
     // Ctrl+E or Cmd+E triggers export
     if ((e.ctrlKey || e.metaKey) && (e.key === 'e' || e.key === 'E')) {
       e.preventDefault();
-      const totalPoints = (this.session.pages.length > 0) || (this.annotations.length > 0);
-      if (!this.activeExportModal && totalPoints) {
-        this.finishAndShowExportModal();
+      const hasPoints = (this.session.pages.length > 0) || (this.annotations.length > 0);
+      if (!this.exportView && hasPoints) {
+        this.finishAndShowExport();
       }
       return;
     }
 
     // Delete or Backspace removes selected annotation if not editing text
-    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedAnnotation && !this.isEditingComment) {
+    if (this.isInspecting && (e.key === 'Delete' || e.key === 'Backspace') && this.selectedAnnotation && !this.isEditingComment && !typing) {
       e.preventDefault();
       this.deleteAnnotation(this.selectedAnnotation);
     }
   }
 
   createAnnotationPoint(targetElement) {
-    const previousPointsCount = (this.session && this.session.pages)
-      ? this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0)
-      : 0;
-
-    const nextIndex = previousPointsCount + this.annotations.length + 1;
+    const nextIndex = this.getPreviousPointsCount() + this.annotations.length + 1;
     const rect = targetElement.getBoundingClientRect ? targetElement.getBoundingClientRect() : { top: 0, left: 0, width: 0, height: 0 };
     const scrollX = window.scrollX || window.pageXOffset || 0;
     const scrollY = window.scrollY || window.pageYOffset || 0;
@@ -816,7 +714,7 @@ class AnnotatorUIManager {
     badgeEl.textContent = nextIndex;
     badgeEl.style.top = `${by}px`;
     badgeEl.style.left = `${bx}px`;
-    badgeEl.title = `Annotation #${nextIndex} (Cliquer pour modifier)`;
+    badgeEl.title = `Annotation #${nextIndex} (cliquer pour modifier)`;
     this.shadow.appendChild(badgeEl);
 
     const annotation = {
@@ -824,6 +722,7 @@ class AnnotatorUIManager {
       index: nextIndex,
       element: targetElement,
       comment: '',
+      type: null,
       badgeEl: badgeEl,
       boxEl: boxEl,
       arrowEl: arrowEl,
@@ -832,12 +731,13 @@ class AnnotatorUIManager {
 
     badgeEl.addEventListener('click', (e) => {
       e.stopPropagation();
+      this.requestSidePanel();
       this.selectedAnnotation = annotation;
-      this.openCommentModal(annotation);
+      this.openEditor(annotation);
     });
 
     this.selectedAnnotation = annotation;
-    this.openCommentModal(annotation, true);
+    this.openEditor(annotation);
   }
 
   createArrowElement(index, bx, by, tx, ty) {
@@ -891,165 +791,51 @@ class AnnotatorUIManager {
     return svg;
   }
 
-  openCommentModal(annotation, isNew = false) {
-    if (this.isEditingComment && this.currentEditingAnnotation && this.currentEditingAnnotation !== annotation) {
+  // ------------------------------------------------------------------
+  // Editing (the form itself is rendered by the side panel)
+  // ------------------------------------------------------------------
+
+  openEditor(annotation) {
+    if (this.currentEditingAnnotation && this.currentEditingAnnotation !== annotation) {
       this.cancelActiveComment();
-    } else if (this.activeCommentCard) {
-      this.activeCommentCard.remove();
     }
-
     this.isEditingComment = true;
-    const rect = annotation.element.getBoundingClientRect ? annotation.element.getBoundingClientRect() : { top: 0, left: 0, width: 0, height: 0 };
-    const scrollX = window.scrollX || window.pageXOffset || 0;
-    const scrollY = window.scrollY || window.pageYOffset || 0;
-
-    const card = document.createElement('div');
-    card.className = 'ai-comment-card';
-
-    const viewportWidth = window.innerWidth || 1024;
-    const viewportHeight = window.innerHeight || 768;
-
-    const badgeTop = annotation.badgeEl ? (parseFloat(annotation.badgeEl.style.top) || (rect.top + scrollY)) : (rect.top + scrollY);
-    const badgeLeft = annotation.badgeEl ? (parseFloat(annotation.badgeEl.style.left) || (rect.left + scrollX)) : (rect.left + scrollX);
-
-    let modalTop = badgeTop + 24;
-    let modalLeft = badgeLeft + 16;
-
-    if (modalLeft - scrollX + 380 > viewportWidth - 16) {
-      modalLeft = Math.max(scrollX + 16, scrollX + viewportWidth - 380 - 16);
-    }
-    if (rect.top + 220 > viewportHeight && rect.top > 180) {
-      modalTop = Math.max(scrollY + 16, badgeTop - 190);
-    }
-
-    card.style.top = `${modalTop}px`;
-    card.style.left = `${modalLeft}px`;
-
-    const tagStr = annotation.element.tagName.toLowerCase();
-    card.innerHTML = `
-      <div class="ai-comment-header">
-        <div class="ai-comment-title">
-          <span>Repère ${annotation.index}</span>
-          <span class="ai-comment-tag">&lt;${tagStr}&gt;</span>
-        </div>
-        <div class="ai-comment-shortcut-badge">Échap pour annuler</div>
-      </div>
-      <textarea class="ai-comment-textarea" aria-label="Ce qui doit changer" placeholder="Indiquez ce que l'IA doit analyser, modifier ou corriger sur cet élément...">${this.escapeHtml(annotation.comment || '')}</textarea>
-      <div class="ai-comment-types" role="group" aria-label="Type d'annotation">
-        <span class="ai-comment-types-label">Type</span>
-        ${Object.entries(ANNOTATION_TYPES).map(([key, label]) => `<button type="button" class="ai-type-chip ai-type-${key}" data-type="${key}">${label}</button>`).join('')}
-      </div>
-      <div class="ai-comment-nudge" role="status"><b>Précisez :</b><span>Quelle valeur cible, sur quel écran ou dans quel état ?</span></div>
-      <div class="ai-comment-footer">
-        <span class="ai-comment-hint">Entrée pour valider</span>
-        <div class="ai-comment-actions">
-          <button class="ai-btn-sm ai-btn-delete" id="ai-modal-delete">${isNew ? 'Annuler' : 'Supprimer'}</button>
-          <button class="ai-btn-sm ai-btn-save" id="ai-modal-save">Enregistrer</button>
-        </div>
-      </div>
-    `;
-
-    const textarea = card.querySelector('textarea');
-    const saveBtn = card.querySelector('#ai-modal-save');
-    const deleteBtn = card.querySelector('#ai-modal-delete');
-
-    const nudge = card.querySelector('.ai-comment-nudge');
-    const chips = card.querySelectorAll('.ai-type-chip');
-    let chosenType = annotation.type || null; // null until the user picks one manually
-    const paintType = (type) => chips.forEach(c => {
-      const on = c.getAttribute('data-type') === type;
-      c.classList.toggle('active', on);
-      c.setAttribute('aria-pressed', String(on));
-    });
-    const refreshInsights = () => {
-      if (!chosenType) paintType(AnnotationInsights.suggestType(textarea.value));
-      nudge.classList.toggle('visible', AnnotationInsights.isVague(textarea.value));
-    };
-    chips.forEach(chip => chip.addEventListener('click', () => {
-      chosenType = chip.getAttribute('data-type');
-      paintType(chosenType);
-    }));
-    textarea.addEventListener('input', refreshInsights);
-    refreshInsights();
-
-    const saveAction = () => {
-      const text = textarea.value.trim();
-      annotation.comment = text;
-      annotation.type = chosenType || AnnotationInsights.suggestType(text);
-
-      if (typeof window !== 'undefined' && window.SelectorGenerator) {
-        annotation.metadata = window.SelectorGenerator.getElementMetadata(
-          annotation.element,
-          annotation.index,
-          annotation.comment
-        );
-      }
-
-      if (isNew && !this.annotations.includes(annotation)) {
-        this.annotations.push(annotation);
-      }
-
-      this.closeCommentModal();
-      this.updateCounter();
-      this.syncSessionToStorage();
-
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({
-          action: 'SET_BADGE',
-          text: String(this.annotations.length),
-          color: '#C9400F'
-        }).catch(() => {});
-      }
-    };
-
-    const deleteAction = () => {
-      this.deleteAnnotation(annotation);
-    };
-
-    saveBtn.addEventListener('click', saveAction);
-    deleteBtn.addEventListener('click', deleteAction);
-
-    // Stop mouse/pointer events from bubbling to page freeze handlers
-    ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'click'].forEach(evtType => {
-      card.addEventListener(evtType, (e) => {
-        e.stopPropagation();
-      });
-    });
-
-    ['keydown', 'keyup', 'keypress', 'input'].forEach(evtType => {
-      card.addEventListener(evtType, (e) => {
-        e.stopPropagation();
-      });
-    });
-
-    textarea.addEventListener('mousedown', (e) => {
-      e.stopPropagation();
-      textarea.focus();
-    });
-
-    textarea.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if ((e.key === 'Enter' && !e.shiftKey) || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
-        e.preventDefault();
-        saveAction();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        this.cancelActiveComment();
-      }
-    });
-
-    this.shadow.appendChild(card);
-    this.activeCommentCard = card;
     this.currentEditingAnnotation = annotation;
+    if (this.highlightBox) this.highlightBox.style.display = 'none';
+    this.broadcastPanelState();
+  }
 
-    setTimeout(() => {
-      if (textarea) {
-        textarea.focus();
-        if (annotation.comment) {
-          textarea.select();
-        }
-      }
-    }, 30);
+  saveEditing(comment, type) {
+    const annotation = this.currentEditingAnnotation;
+    if (!annotation) return;
+
+    annotation.comment = String(comment || '').trim();
+    annotation.type = ANNOTATION_TYPES[type] ? type : (annotation.type || 'style');
+
+    if (typeof window !== 'undefined' && window.SelectorGenerator) {
+      annotation.metadata = window.SelectorGenerator.getElementMetadata(
+        annotation.element,
+        annotation.index,
+        annotation.comment
+      );
+    }
+
+    if (!this.annotations.includes(annotation)) {
+      this.annotations.push(annotation);
+    }
+
+    this.closeCommentModal();
+    this.updateCounter();
+    this.syncSessionToStorage();
+    this.refreshScreenShot();
+
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({
+        action: 'SET_BADGE',
+        text: String(this.annotations.length),
+        color: '#C9400F'
+      }).catch(() => {});
+    }
   }
 
   deleteAnnotation(annotation) {
@@ -1058,10 +844,12 @@ class AnnotatorUIManager {
     if (annotation.arrowEl) annotation.arrowEl.remove();
 
     this.annotations = this.annotations.filter(a => a !== annotation);
+    if (this.selectedAnnotation === annotation) this.selectedAnnotation = null;
     this.reindexAnnotations();
     this.closeCommentModal();
     this.updateCounter();
     this.syncSessionToStorage();
+    if (this.annotations.length > 0) this.refreshScreenShot(); else this.screenShot = null;
 
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage({
@@ -1073,29 +861,26 @@ class AnnotatorUIManager {
   }
 
   closeCommentModal() {
-    if (this.activeCommentCard) {
-      this.activeCommentCard.remove();
-      this.activeCommentCard = null;
-    }
     this.isEditingComment = false;
     this.currentEditingAnnotation = null;
+    this.broadcastPanelState();
+    if (this.pendingFinalize) this.finalizeScreenOnChange();
   }
 
   cancelActiveComment() {
-    if (!this.currentEditingAnnotation) return;
-    const isNew = !this.annotations.includes(this.currentEditingAnnotation);
+    const annotation = this.currentEditingAnnotation;
+    if (!annotation) return;
+    const isNew = !this.annotations.includes(annotation);
     if (isNew) {
-      if (this.currentEditingAnnotation.badgeEl) this.currentEditingAnnotation.badgeEl.remove();
-      if (this.currentEditingAnnotation.boxEl) this.currentEditingAnnotation.boxEl.remove();
-      if (this.currentEditingAnnotation.arrowEl) this.currentEditingAnnotation.arrowEl.remove();
+      if (annotation.badgeEl) annotation.badgeEl.remove();
+      if (annotation.boxEl) annotation.boxEl.remove();
+      if (annotation.arrowEl) annotation.arrowEl.remove();
     }
     this.closeCommentModal();
   }
 
   reindexAnnotations() {
-    const previousPointsCount = (this.session && this.session.pages)
-      ? this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0)
-      : 0;
+    const previousPointsCount = this.getPreviousPointsCount();
 
     this.annotations.forEach((ann, idx) => {
       ann.index = previousPointsCount + idx + 1;
@@ -1106,11 +891,15 @@ class AnnotatorUIManager {
     });
   }
 
+  // ------------------------------------------------------------------
+  // Export (the view itself is rendered by the side panel)
+  // ------------------------------------------------------------------
+
   async exportAndFinish() {
-    return this.finishAndShowExportModal();
+    return this.finishAndShowExport();
   }
 
-  async finishAndShowExportModal() {
+  async finishAndShowExport() {
     const hasCurrent = this.annotations.length > 0;
     const hasPrevious = this.session && this.session.pages && this.session.pages.length > 0;
 
@@ -1119,62 +908,54 @@ class AnnotatorUIManager {
       return;
     }
 
-    if (this.activeCommentCard) {
-      this.closeCommentModal();
+    if (this.currentEditingAnnotation) {
+      this.cancelActiveComment();
     }
 
     this.showToast('Préparation de l\'exportation...');
-
-    this.setHudVisible(false);
-    this.highlightBox.style.display = 'none';
-
-    await new Promise(r => setTimeout(r, 150));
+    if (this.highlightBox) this.highlightBox.style.display = 'none';
 
     try {
-      let currentPageDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        const response = await chrome.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
-        if (response && response.success && response.dataUrl) {
-          currentPageDataUrl = response.dataUrl;
-        }
-      }
-
-      this.setHudVisible(true);
-
-      // Save current page to session
       const allPages = [...(this.session.pages || [])];
+      let currentPageDataUrl = allPages.length ? allPages[allPages.length - 1].dataUrl : '';
       if (hasCurrent) {
-        allPages.push({
-          stepIndex: allPages.length + 1,
-          url: window.location.href,
-          title: document.title,
-          dataUrl: currentPageDataUrl,
-          annotations: this.annotations.map(a => ({
-            index: a.index,
-            comment: a.comment,
-            type: a.type || 'style',
-            metadata: a.metadata || { element: { tag: a.element.tagName } }
-          }))
-        });
+        currentPageDataUrl = await this.captureScreen();
+        allPages.push(this.snapshotPage(allPages.length + 1, currentPageDataUrl));
       }
 
-      const promptText = this.generateConsolidatedPrompt(allPages, this.currentExportFormat);
-      const payload = this.generateMultiPagePayload(allPages, promptText);
-
-      this.lastExportData = {
-        dataUrl: currentPageDataUrl,
-        promptText,
-        payload,
-        pages: allPages
+      const payload = this.generateMultiPagePayload(allPages);
+      const prompts = {
+        agent: this.generateConsolidatedPrompt(allPages, 'agent'),
+        github: this.generateConsolidatedPrompt(allPages, 'github'),
+        json: JSON.stringify(payload, null, 2)
       };
+      payload.aiPrompt = prompts.agent;
+      prompts.json = JSON.stringify(payload, null, 2);
 
-      this.showExportModal(allPages, promptText, payload);
-
+      this.lastExportData = { dataUrl: currentPageDataUrl, promptText: prompts.agent, payload, pages: allPages };
+      this.exportView = {
+        id: Date.now(),
+        pages: allPages.map(p => ({
+          stepIndex: p.stepIndex,
+          title: p.title,
+          url: p.url,
+          dataUrl: p.dataUrl,
+          count: (p.annotations || []).length
+        })),
+        prompts,
+        payload
+      };
+      this.status = null;
+      this.broadcastPanelState();
     } catch (err) {
-      this.setHudVisible(true);
       console.error('[AI Web Annotator] Export failed:', err);
       this.showToast(`Erreur : ${err.message}`);
     }
+  }
+
+  closeExportView() {
+    this.exportView = null;
+    this.broadcastPanelState();
   }
 
   generateConsolidatedPrompt(pages, format = 'agent') {
@@ -1237,7 +1018,7 @@ class AnnotatorUIManager {
       md += `**URL :** ${page.url}  \n\n`;
       (page.annotations || []).forEach((a) => {
         const meta = a.metadata ? a.metadata.element : {};
-        md += `- [ ] **[Point #${a.index}]** \`${meta.cssSelector || meta.tag || 'element'}\` : ${a.comment || 'À corriger'}\n`;
+        md += `- [ ] **[Point #${a.index}]** **${ANNOTATION_TYPES[a.type] || 'Style'}** \`${meta.cssSelector || meta.tag || 'element'}\` : ${a.comment || 'À corriger'}\n`;
       });
       md += `\n`;
     });
@@ -1262,438 +1043,30 @@ class AnnotatorUIManager {
       aiPrompt: promptText || this.generateConsolidatedPrompt(pages, 'agent')
     };
   }
-
-  showExportModal(pages, promptText, payload) {
-    if (this.activeExportModal) {
-      this.activeExportModal.remove();
-    }
-
-    const totalPoints = pages.reduce((acc, p) => acc + (p.annotations?.length || 0), 0);
-    let selectedPageIndex = pages.length - 1;
-    let activePage = pages[selectedPageIndex] || { dataUrl: '', stepIndex: 1 };
-    const isMultiScreen = pages.length > 1;
-
-    const formatConfigs = {
-      agent: {
-        name: 'Agent IA',
-        ctaMain: "Copier pour l'Agent IA",
-        ctaSub: 'Prompt structuré avec sélecteurs & contexte',
-        desc: 'Prompt + contexte DOM'
-      },
-      github: {
-        name: 'GitHub Issue',
-        ctaMain: 'Copier pour GitHub Issue',
-        ctaSub: 'Markdown prêt à coller dans une issue',
-        desc: 'Markdown prêt à coller'
-      },
-      json: {
-        name: 'JSON',
-        ctaMain: 'Copier le JSON',
-        ctaSub: 'Données brutes structurées',
-        desc: 'Données structurées'
-      }
-    };
-
-    const currentConfig = formatConfigs[this.currentExportFormat] || formatConfigs.agent;
-
-    const modal = document.createElement('div');
-    modal.className = 'ai-export-backdrop';
-    const fmtTab = (key) => `
-      <button class="ai-format-tab ${this.currentExportFormat === key ? 'active' : ''}" data-format="${key}" aria-pressed="${this.currentExportFormat === key}">
-        <span class="ai-format-name">${formatConfigs[key].name}</span>
-        <span class="ai-format-desc">${formatConfigs[key].desc}</span>
-      </button>`;
-
-    modal.innerHTML = `
-      <div class="ai-export-dialog" role="dialog" aria-modal="true" aria-label="Exporter la session">
-        <div class="ai-export-header">
-          <div class="ai-export-title-group">
-            <h3 class="ai-export-title">Exporter la session</h3>
-            <span class="ai-export-badge">${totalPoints} annotation${totalPoints > 1 ? 's' : ''}${isMultiScreen ? ` • ${pages.length} écrans` : ''}</span>
-          </div>
-          <button class="ai-export-close-btn" id="ai-modal-close" aria-label="Fermer" title="Fermer (Échap)">✕</button>
-        </div>
-
-        <div class="ai-export-body">
-          <div class="ai-export-main">
-            ${isMultiScreen ? `
-              <div class="ai-export-screens-nav">
-                <span class="ai-export-screens-label">Écrans capturés</span>
-                <div class="ai-export-screens-tabs" id="ai-screens-tabs">
-                  ${pages.map((p, idx) => `
-                    <button class="ai-screen-tab ${idx === selectedPageIndex ? 'active' : ''}" data-page-index="${idx}">
-                      <span class="ai-screen-tab-title">Écran ${p.stepIndex}</span>
-                      <span class="ai-screen-tab-badge">${(p.annotations || []).length} ann.</span>
-                    </button>
-                  `).join('')}
-                </div>
-              </div>
-            ` : ''}
-
-            <div class="ai-export-preview-container">
-              <img class="ai-export-thumbnail" id="ai-export-thumb" src="${activePage.dataUrl}" alt="Aperçu de la capture annotée" />
-              <div class="ai-export-preview-overlay">
-                <span class="ai-export-preview-tag" id="ai-preview-tag">${isMultiScreen ? `Aperçu · écran #${activePage.stepIndex}` : 'Aperçu avec repères'}</span>
-              </div>
-            </div>
-
-            <details class="ai-export-prompt-details" id="ai-prompt-details">
-              <summary class="ai-export-prompt-summary">
-                <span class="ai-summary-label">
-                  <svg class="ai-summary-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                  <span>Voir le contenu généré (<strong id="ai-prompt-format-name">${currentConfig.name}</strong>)</span>
-                </span>
-              </summary>
-              <pre class="ai-export-prompt-pre" id="ai-prompt-preview">${this.escapeHtml(promptText)}</pre>
-            </details>
-          </div>
-
-          <div class="ai-export-side">
-            <span class="ai-eyebrow">Destination</span>
-            <div class="ai-export-format-selector">
-              ${fmtTab('agent')}${fmtTab('github')}${fmtTab('json')}
-            </div>
-
-            <div class="ai-export-primary-action-wrap">
-              <button class="ai-export-primary-btn" id="ai-btn-primary-action" title="Copier le contenu formaté dans le presse-papier">
-                ${this.svgIcon('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>', 20)}
-                <div class="ai-action-text-group">
-                  <span class="ai-action-main-text" id="ai-primary-cta-title">${currentConfig.ctaMain}</span>
-                  <span class="ai-action-sub-text" id="ai-primary-cta-sub">${currentConfig.ctaSub}</span>
-                </div>
-              </button>
-            </div>
-
-            <div class="ai-export-secondary-tools">
-              <button class="ai-export-sub-btn" id="ai-btn-copy-image" title="Copier l'image de l'écran affiché dans le presse-papier">
-                ${this.svgIcon('<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>')}
-                <span id="ai-copy-img-text">${isMultiScreen ? `Copier écran #${activePage.stepIndex}` : "Copier l'image"}</span>
-              </button>
-              <button class="ai-export-sub-btn" id="ai-btn-dl-png" title="Enregistrer l'image PNG affichée">
-                ${this.svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>')}
-                <span id="ai-dl-png-text">${isMultiScreen ? `Télécharger écran #${activePage.stepIndex}` : 'Télécharger PNG'}</span>
-              </button>
-              ${isMultiScreen ? `
-                <button class="ai-export-sub-btn" id="ai-btn-dl-all-png" title="Télécharger toutes les captures PNG de la session">
-                  ${this.svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>')}
-                  <span>Tout télécharger (${pages.length})</span>
-                </button>
-              ` : ''}
-              <button class="ai-export-sub-btn" id="ai-btn-dl-json" title="Enregistrer JSON">
-                ${this.svgIcon('<polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline>')}
-                <span>Télécharger JSON</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="ai-export-footer">
-          <button class="ai-btn-footer-link" id="ai-btn-resume">Continuer d'annoter</button>
-          <button class="ai-btn-footer-danger" id="ai-btn-quit-all">Quitter et effacer</button>
-        </div>
-      </div>
-    `;
-
-    const thumbImg = modal.querySelector('#ai-export-thumb');
-    const previewTag = modal.querySelector('#ai-preview-tag');
-    const copyImgText = modal.querySelector('#ai-copy-img-text');
-    const dlPngText = modal.querySelector('#ai-dl-png-text');
-    const screenTabs = modal.querySelectorAll('.ai-screen-tab');
-    const primaryCtaBtn = modal.querySelector('#ai-btn-primary-action');
-    const primaryCtaTitle = modal.querySelector('#ai-primary-cta-title');
-    const primaryCtaSub = modal.querySelector('#ai-primary-cta-sub');
-    const promptFormatName = modal.querySelector('#ai-prompt-format-name');
-    const promptPre = modal.querySelector('#ai-prompt-preview');
-    const formatTabs = modal.querySelectorAll('.ai-format-tab');
-
-    const copyImgBtn = modal.querySelector('#ai-btn-copy-image');
-    const dlPngBtn = modal.querySelector('#ai-btn-dl-png');
-    const dlAllBtn = modal.querySelector('#ai-btn-dl-all-png');
-    const dlJsonBtn = modal.querySelector('#ai-btn-dl-json');
-    const resumeBtn = modal.querySelector('#ai-btn-resume');
-    const quitBtn = modal.querySelector('#ai-btn-quit-all');
-    const closeBtn = modal.querySelector('#ai-modal-close');
-
-    const updateFormatUI = (format) => {
-      this.currentExportFormat = format;
-      const config = formatConfigs[format] || formatConfigs.agent;
-      if (primaryCtaTitle) primaryCtaTitle.textContent = config.ctaMain;
-      if (primaryCtaSub) primaryCtaSub.textContent = config.ctaSub;
-      if (promptFormatName) promptFormatName.textContent = config.name;
-
-      const newPrompt = (format === 'json')
-        ? JSON.stringify(payload, null, 2)
-        : this.generateConsolidatedPrompt(pages, format);
-
-      if (promptPre) promptPre.textContent = newPrompt;
-    };
-
-    formatTabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        formatTabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const format = tab.getAttribute('data-format');
-        updateFormatUI(format);
-      });
-    });
-
-    screenTabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        screenTabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const idx = parseInt(tab.getAttribute('data-page-index'), 10);
-        selectedPageIndex = idx;
-        activePage = pages[selectedPageIndex] || pages[0];
-
-        if (thumbImg) thumbImg.src = activePage.dataUrl;
-        if (previewTag) previewTag.textContent = `Aperçu · écran #${activePage.stepIndex}`;
-        if (copyImgText) copyImgText.textContent = `Copier écran #${activePage.stepIndex}`;
-        if (dlPngText) dlPngText.textContent = `Télécharger écran #${activePage.stepIndex}`;
-      });
-    });
-
-    ['keydown', 'keyup', 'keypress'].forEach(evtType => {
-      modal.addEventListener(evtType, (e) => {
-        if (e.key === 'Escape') return;
-        e.stopPropagation();
-      });
-    });
-
-    // Primary CTA Action Handler
-    if (primaryCtaBtn) {
-      primaryCtaBtn.addEventListener('click', () => {
-        if (this.currentExportFormat === 'json') {
-          const jsonText = JSON.stringify(payload, null, 2);
-          this.copyPromptToClipboard(jsonText, primaryCtaBtn);
-        } else {
-          const activePrompt = this.generateConsolidatedPrompt(pages, this.currentExportFormat);
-          this.copyPromptToClipboard(activePrompt, primaryCtaBtn);
-        }
-      });
-    }
-
-    if (copyImgBtn) {
-      copyImgBtn.addEventListener('click', () => this.copyImageToClipboard(activePage.dataUrl, copyImgBtn));
-    }
-
-    if (dlPngBtn) {
-      dlPngBtn.addEventListener('click', () => {
-        const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = isMultiScreen
-          ? `annotation-ecran-${activePage.stepIndex}-${hostname}-${timestamp}.png`
-          : `annotation-${hostname}-${timestamp}.png`;
-        this.downloadPNG(activePage.dataUrl, filename);
-      });
-    }
-
-    if (dlAllBtn) {
-      dlAllBtn.addEventListener('click', () => this.downloadAllPNG(pages));
-    }
-
-    if (dlJsonBtn) {
-      dlJsonBtn.addEventListener('click', () => this.downloadJSON(payload));
-    }
-
-    const closeModal = () => {
-      modal.remove();
-      this.activeExportModal = null;
-    };
-
-    resumeBtn.addEventListener('click', closeModal);
-    closeBtn.addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeModal();
-    });
-
-    quitBtn.addEventListener('click', () => {
-      closeModal();
-      this.deactivate();
-    });
-
-    this.shadow.appendChild(modal);
-    this.activeExportModal = modal;
-  }
-
-  svgIcon(inner, size = 14) {
-    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
-  }
-
-  async copyImageToClipboard(dataUrl, btn) {
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      try {
-        const res = await chrome.runtime.sendMessage({
-          action: 'COPY_TO_CLIPBOARD',
-          type: 'image',
-          dataUrl: dataUrl
-        });
-        if (res && res.success) {
-          this.markButtonSuccess(btn, 'Image copiée');
-          this.showToast('Image copiée dans le presse-papier (Ctrl+V) !');
-          return;
-        }
-      } catch (_) {}
-    }
-
-    const nav = (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) ? window.navigator : (typeof navigator !== 'undefined' ? navigator : null);
-    try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      const pngBlob = blob.type === 'image/png' ? blob : new Blob([await blob.arrayBuffer()], { type: 'image/png' });
-
-      if (nav && nav.clipboard && nav.clipboard.write) {
-        await nav.clipboard.write([
-          new ClipboardItem({ 'image/png': pngBlob })
-        ]);
-        this.markButtonSuccess(btn, 'Image copiée');
-        this.showToast('Image copiée ! Vous pouvez la coller dans votre IA (Ctrl+V).');
-        return;
-      }
-      throw new Error('Clipboard write not supported');
-    } catch (err) {
-      console.warn('[AI Web Annotator] Image clipboard write fallback to download:', err);
-      await this.downloadPNG(dataUrl);
-      this.showToast('Image téléchargée.');
-    }
-  }
-
-  async copyPromptToClipboard(promptText, btn) {
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      try {
-        const res = await chrome.runtime.sendMessage({
-          action: 'COPY_TO_CLIPBOARD',
-          type: 'text',
-          text: promptText
-        });
-        if (res && res.success) {
-          this.markButtonSuccess(btn, 'Prompt copié');
-          this.showToast('Prompt IA copié dans le presse-papier !');
-          return;
-        }
-      } catch (_) {}
-    }
-
-    const nav = (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) ? window.navigator : (typeof navigator !== 'undefined' ? navigator : null);
-    try {
-      if (nav && nav.clipboard && nav.clipboard.writeText) {
-        await nav.clipboard.writeText(promptText);
-      } else {
-        this.fallbackCopyText(promptText);
-      }
-      this.markButtonSuccess(btn, 'Prompt copié');
-      this.showToast('Prompt IA copié dans le presse-papier !');
-    } catch (err) {
-      this.fallbackCopyText(promptText);
-      this.markButtonSuccess(btn, 'Prompt copié');
-      this.showToast('Prompt IA copié dans le presse-papier !');
-    }
-  }
-
-  markButtonSuccess(btn, message) {
-    const textEl = btn.querySelector('.ai-action-main-text');
-    if (!textEl) return;
-    const orig = textEl.textContent;
-    btn.classList.add('ai-btn-success');
-    textEl.textContent = message;
-    setTimeout(() => {
-      btn.classList.remove('ai-btn-success');
-      textEl.textContent = orig;
-    }, 2500);
-  }
-
-  async downloadPNG(dataUrl, customFilename = null) {
-    const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = customFilename || `annotation-${hostname}-${timestamp}.png`;
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      await chrome.runtime.sendMessage({
-        action: 'DOWNLOAD_FILE',
-        url: dataUrl,
-        filename: filename
-      });
-    }
-    this.showToast('Capture PNG téléchargée.');
-  }
-
-  async downloadAllPNG(pages = []) {
-    if (!pages || !pages.length) return;
-    const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-
-    this.showToast(`Téléchargement de ${pages.length} image(s) en cours...`);
-
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      if (!page || !page.dataUrl) continue;
-      const stepNum = page.stepIndex || (i + 1);
-      const filename = `annotation-ecran-${stepNum}-${hostname}-${timestamp}.png`;
-
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        await chrome.runtime.sendMessage({
-          action: 'DOWNLOAD_FILE',
-          url: page.dataUrl,
-          filename: filename
-        });
-      }
-
-      // Small delay between downloads to prevent browser throttling/concurrency issues
-      if (i < pages.length - 1) {
-        await new Promise(r => setTimeout(r, 200));
-      }
-    }
-
-    this.showToast(`${pages.length} capture(s) PNG téléchargées !`);
-  }
-
-  async downloadJSON(payload) {
-    const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const jsonBlob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const jsonBlobUrl = URL.createObjectURL(jsonBlob);
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      await chrome.runtime.sendMessage({
-        action: 'DOWNLOAD_FILE',
-        url: jsonBlobUrl,
-        filename: `annotation-context-${hostname}-${timestamp}.json`
-      });
-    }
-    this.showToast('Données JSON téléchargées.');
-  }
-
-  fallbackCopyText(text) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); } catch (_) {}
-    ta.remove();
-  }
-
-  escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  showToast(message) {
-    const existing = this.shadow.querySelector('.ai-toast');
-    if (existing) existing.remove();
-
-    const toast = document.createElement('div');
-    toast.className = 'ai-toast';
-    toast.textContent = message;
-    this.shadow.appendChild(toast);
-
-    setTimeout(() => {
-      if (toast.parentElement) toast.remove();
-    }, 3500);
-  }
 }
+
+/**
+ * Is this burst of DOM changes a new UI state (dialog, menu, panel, route...) rather than ambient noise?
+ * A change counts when a structural element (dialog, menu, nav, tabs...) appears or disappears, or when
+ * a large area of the page is added.
+ */
+AnnotatorUIManager.STRUCTURAL_ROLES = /^(dialog|alertdialog|menu|menubar|listbox|tablist|tabpanel|navigation|complementary|main)$/;
+AnnotatorUIManager.STRUCTURAL_TAGS = /^(dialog|nav|aside|main|menu)$/;
+AnnotatorUIManager.NEW_SCREEN_MIN_AREA = 30000; // px² of added elements
+AnnotatorUIManager.AMBIENT_NAMES = /(^|[\s_-])(ads?|advert\w*|sponsor\w*|clock|ticker|spinner|loader|skeleton|carousel|slide\w*|toast|badge|tooltip)([\s_-]|$)/i;
+AnnotatorUIManager.isNewScreen = function (changes) {
+  let addedArea = 0;
+  for (const c of changes || []) {
+    const label = `${c.className || ''} ${c.id || ''}`;
+    if (AnnotatorUIManager.AMBIENT_NAMES.test(label) || c.role === 'status' || c.role === 'tooltip' || c.role === 'progressbar') continue;
+    if (AnnotatorUIManager.STRUCTURAL_ROLES.test(c.role || '') || AnnotatorUIManager.STRUCTURAL_TAGS.test(c.tag || '')) return true;
+    if (c.kind === 'added') addedArea += (c.width || 0) * (c.height || 0);
+  }
+  return addedArea >= AnnotatorUIManager.NEW_SCREEN_MIN_AREA;
+};
+AnnotatorUIManager.PLACEHOLDER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+AnnotatorUIManager.DOM_CHANGE_THRESHOLD = 3; // element nodes added/removed within one window
+AnnotatorUIManager.DOM_CHANGE_WINDOW_MS = 500;
 
 if (typeof window !== 'undefined') {
   window.AnnotatorUI = new AnnotatorUIManager();

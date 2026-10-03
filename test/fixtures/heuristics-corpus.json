@@ -1,0 +1,670 @@
+{
+ "comments": [
+  "Le bouton ne réagit pas au clic",
+  "Le formulaire plante quand on valide",
+  "Erreur 500 après l'envoi",
+  "Le menu ne s'ouvre pas sur mobile",
+  "Le lien est cassé, il mène vers une page 404",
+  "La vidéo se bloque après 10 secondes",
+  "Le panier ne se met pas à jour quand j'ajoute un produit",
+  "Impossible de fermer la modale",
+  "Titre trop petit sur mobile, passer à 40px",
+  "Augmenter l'espacement entre les cartes à 24px",
+  "Le bouton doit être vert #1F6B45",
+  "Aligner le logo à gauche avec le menu",
+  "Réduire la hauteur du header de 80px à 56px",
+  "Mettre une bordure arrondie de 8px sur les images",
+  "Le contraste du texte gris est trop faible, passer à #4F4B44",
+  "Reformuler : « Démarrer gratuitement »",
+  "Corriger la faute dans le titre : « bienvenu » → « bienvenue »",
+  "Traduire ce libellé en anglais",
+  "Remplacer le texte par « Créer mon compte »",
+  "Le wording du bouton n'est pas clair, mettre « Envoyer le message »",
+  "Changer la phrase d'intro pour parler du prix",
+  "Pas bien",
+  "à revoir",
+  "Bizarre",
+  "Mieux",
+  "Trop moche",
+  "À améliorer",
+  "Pas terrible ça",
+  "Faire plus propre",
+  "Le design n'est pas joli",
+  "Ajouter une icône de panier à côté du texte du bouton",
+  "Ce bloc doit être sur deux colonnes au-dessus de 1024px",
+  "Mettre le prix en gras et en rouge",
+  "Le champ email doit afficher un message d'erreur sous le champ si invalide"
+ ],
+ "domChanges": [
+  {
+   "name": "Horloge qui se met à jour",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "clock",
+     "text": "14:03:22",
+     "width": 60,
+     "height": 16
+    },
+    {
+     "kind": "removed",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "clock",
+     "text": "14:03:21",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "x",
+     "text": "",
+     "width": 4,
+     "height": 4
+    }
+   ]
+  },
+  {
+   "name": "Ticker boursier",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "ticker-item",
+     "text": "CAC 40 +0,3%",
+     "width": 90,
+     "height": 16
+    },
+    {
+     "kind": "removed",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "ticker-item",
+     "text": "CAC 40 +0,2%",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "ticker-item",
+     "text": "EUR/USD 1,08",
+     "width": 90,
+     "height": 16
+    }
+   ]
+  },
+  {
+   "name": "Spinner de chargement",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "progressbar",
+     "id": "",
+     "className": "spinner",
+     "text": "",
+     "width": 32,
+     "height": 32
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "spinner-dot",
+     "text": "",
+     "width": 6,
+     "height": 6
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "spinner-dot",
+     "text": "",
+     "width": 6,
+     "height": 6
+    }
+   ]
+  },
+  {
+   "name": "Compteur de notifications",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "badge",
+     "text": "3",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "badge",
+     "text": "4",
+     "width": 18,
+     "height": 18
+    },
+    {
+     "kind": "added",
+     "tag": "i",
+     "role": "",
+     "id": "",
+     "className": "icon",
+     "text": "",
+     "width": 12,
+     "height": 12
+    }
+   ]
+  },
+  {
+   "name": "Bandeau publicitaire rafraîchi",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "ad-slot",
+     "text": "Pub",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "ad-slot",
+     "text": "Promo été -20%",
+     "width": 300,
+     "height": 100
+    },
+    {
+     "kind": "added",
+     "tag": "img",
+     "role": "",
+     "id": "",
+     "className": "ad",
+     "text": "",
+     "width": 300,
+     "height": 100
+    }
+   ]
+  },
+  {
+   "name": "Tooltip au survol",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "tooltip",
+     "id": "",
+     "className": "tooltip",
+     "text": "Copier le lien",
+     "width": 110,
+     "height": 28
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "arrow",
+     "text": "",
+     "width": 8,
+     "height": 8
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "shadow",
+     "text": "",
+     "width": 110,
+     "height": 28
+    }
+   ]
+  },
+  {
+   "name": "Animation de points de frappe",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "dot",
+     "text": ".",
+     "width": 6,
+     "height": 6
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "dot",
+     "text": ".",
+     "width": 6,
+     "height": 6
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "dot",
+     "text": ".",
+     "width": 6,
+     "height": 6
+    }
+   ]
+  },
+  {
+   "name": "Mise à jour d'un compteur de likes",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "likes",
+     "text": "1 203",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "likes",
+     "text": "1 204",
+     "width": 40,
+     "height": 16
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "heart",
+     "text": "",
+     "width": 14,
+     "height": 14
+    }
+   ]
+  },
+  {
+   "name": "Modale de paramètres",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "dialog",
+     "id": "settings-modal",
+     "className": "modal open",
+     "text": "Paramètres du compte Profil Sécurité Notifications",
+     "width": 640,
+     "height": 480
+    },
+    {
+     "kind": "added",
+     "tag": "nav",
+     "role": "tablist",
+     "id": "",
+     "className": "tabs",
+     "text": "Profil Sécurité Notifications",
+     "width": 640,
+     "height": 48
+    },
+    {
+     "kind": "added",
+     "tag": "button",
+     "role": "",
+     "id": "",
+     "className": "btn",
+     "text": "Enregistrer",
+     "width": 120,
+     "height": 40
+    }
+   ]
+  },
+  {
+   "name": "Menu déroulant ouvert",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "ul",
+     "role": "menu",
+     "id": "",
+     "className": "dropdown",
+     "text": "Mon profil Mes commandes Se déconnecter",
+     "width": 220,
+     "height": 160
+    },
+    {
+     "kind": "added",
+     "tag": "li",
+     "role": "menuitem",
+     "id": "",
+     "className": "",
+     "text": "Mon profil",
+     "width": 220,
+     "height": 40
+    },
+    {
+     "kind": "added",
+     "tag": "li",
+     "role": "menuitem",
+     "id": "",
+     "className": "",
+     "text": "Mes commandes",
+     "width": 220,
+     "height": 40
+    }
+   ]
+  },
+  {
+   "name": "Tiroir latéral de panier",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "aside",
+     "role": "complementary",
+     "id": "cart-drawer",
+     "className": "drawer open",
+     "text": "Votre panier 2 articles Total 54 € Commander",
+     "width": 420,
+     "height": 900
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "cart-line",
+     "text": "T-shirt bleu 25 €",
+     "width": 380,
+     "height": 90
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "cart-line",
+     "text": "Casquette 29 €",
+     "width": 380,
+     "height": 90
+    }
+   ]
+  },
+  {
+   "name": "Changement d'onglet (contenu remplacé)",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "section",
+     "role": "tabpanel",
+     "id": "tab-overview",
+     "className": "panel",
+     "text": "Aperçu Résumé du mois",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "section",
+     "role": "tabpanel",
+     "id": "tab-billing",
+     "className": "panel",
+     "text": "Facturation Moyens de paiement Historique des factures",
+     "width": 900,
+     "height": 600
+    },
+    {
+     "kind": "added",
+     "tag": "table",
+     "role": "",
+     "id": "",
+     "className": "invoices",
+     "text": "Date Montant Statut",
+     "width": 880,
+     "height": 300
+    }
+   ]
+  },
+  {
+   "name": "Navigation SPA vers une nouvelle page",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "main",
+     "role": "",
+     "id": "app-main",
+     "className": "home",
+     "text": "Accueil Bienvenue Nos offres",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "main",
+     "role": "",
+     "id": "app-main",
+     "className": "pricing",
+     "text": "Tarifs Choisissez votre formule Pro Équipe Entreprise",
+     "width": 1200,
+     "height": 1400
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "plan",
+     "text": "Pro 12 €/mois",
+     "width": 360,
+     "height": 520
+    }
+   ]
+  },
+  {
+   "name": "Accordéon FAQ déplié",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "region",
+     "id": "faq-3",
+     "className": "answer",
+     "text": "Vous pouvez annuler à tout moment depuis les paramètres de facturation.",
+     "width": 720,
+     "height": 120
+    },
+    {
+     "kind": "added",
+     "tag": "p",
+     "role": "",
+     "id": "",
+     "className": "",
+     "text": "Vous pouvez annuler à tout moment",
+     "width": 700,
+     "height": 48
+    },
+    {
+     "kind": "added",
+     "tag": "a",
+     "role": "",
+     "id": "",
+     "className": "link",
+     "text": "En savoir plus",
+     "width": 90,
+     "height": 20
+    }
+   ]
+  },
+  {
+   "name": "Bannière cookies apparue",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "dialog",
+     "id": "cookie-banner",
+     "className": "cookies",
+     "text": "Nous utilisons des cookies Accepter Refuser Personnaliser",
+     "width": 1280,
+     "height": 140
+    },
+    {
+     "kind": "added",
+     "tag": "button",
+     "role": "",
+     "id": "",
+     "className": "btn",
+     "text": "Accepter",
+     "width": 120,
+     "height": 40
+    },
+    {
+     "kind": "added",
+     "tag": "button",
+     "role": "",
+     "id": "",
+     "className": "btn",
+     "text": "Refuser",
+     "width": 120,
+     "height": 40
+    }
+   ]
+  },
+  {
+   "name": "Carrousel qui défile",
+   "changes": [
+    {
+     "kind": "removed",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "slide",
+     "text": "Slide 1 Nouveautés",
+     "width": 0,
+     "height": 0
+    },
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "",
+     "id": "",
+     "className": "slide",
+     "text": "Slide 2 Promotions",
+     "width": 1100,
+     "height": 420
+    },
+    {
+     "kind": "added",
+     "tag": "img",
+     "role": "",
+     "id": "",
+     "className": "slide-img",
+     "text": "",
+     "width": 1100,
+     "height": 420
+    }
+   ]
+  },
+  {
+   "name": "Toast de confirmation",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "div",
+     "role": "status",
+     "id": "",
+     "className": "toast",
+     "text": "Modifications enregistrées",
+     "width": 280,
+     "height": 48
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "icon",
+     "text": "",
+     "width": 16,
+     "height": 16
+    },
+    {
+     "kind": "added",
+     "tag": "span",
+     "role": "",
+     "id": "",
+     "className": "msg",
+     "text": "Modifications enregistrées",
+     "width": 220,
+     "height": 20
+    }
+   ]
+  },
+  {
+   "name": "Liste de résultats de recherche chargée",
+   "changes": [
+    {
+     "kind": "added",
+     "tag": "ul",
+     "role": "listbox",
+     "id": "results",
+     "className": "search-results",
+     "text": "Résultat 1 Résultat 2 Résultat 3 Résultat 4",
+     "width": 600,
+     "height": 400
+    },
+    {
+     "kind": "added",
+     "tag": "li",
+     "role": "option",
+     "id": "",
+     "className": "",
+     "text": "Résultat 1",
+     "width": 600,
+     "height": 80
+    },
+    {
+     "kind": "added",
+     "tag": "li",
+     "role": "option",
+     "id": "",
+     "className": "",
+     "text": "Résultat 2",
+     "width": 600,
+     "height": 80
+    }
+   ]
+  }
+ ]
+}

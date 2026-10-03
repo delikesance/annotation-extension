@@ -41,19 +41,25 @@ INSTALLATION
 
 USAGE
 
-    Open a web page and click the AI Web Annotator extension icon.
+    Open a web page and click the AI Web Annotator extension icon. The
+    side panel opens beside the page: the page is never covered or resized
+    by the extension.
 
-    Select elements on the page to create numbered annotations and add
-    comments.
+    Select "Ajouter une annotation" (key A) to enter annotation mode, then
+    click elements to place numbered annotations. Type the comment in the
+    panel; the type (Style, Bug, Texte) is suggested and vague comments are
+    flagged. Several annotations can be placed in a row. Select "Terminer
+    l'annotation" (Escape) to browse freely again: open menus, panels and
+    dialogs. When the page changes (dialog, menu, route...), the annotated
+    screen is saved and a new screen starts automatically.
 
-    When finished, select "Terminer & Exporter".
+    "Exporter la session" opens the export view in the panel:
 
-    The extension exports:
-
-        An annotated PNG screenshot.
+        An annotated PNG screenshot per screen.
         Structured DOM context in JSON format.
         CSS selectors and XPath expressions.
-        A formatted AI prompt copied to the clipboard.
+        A formatted prompt (AI agent, GitHub issue or JSON) copied to the
+        clipboard.
 
 DEVELOPMENT
 
@@ -71,11 +77,33 @@ DEVELOPMENT
 
 TESTING
 
-    Run the test suite:
+    Unit tests (jsdom):
 
         npm test
 
+    End-to-end tests drive a real Chromium with the extension loaded
+    (service worker, content script, side panel page, screenshots,
+    clipboard, session restore across navigations):
+
+        npx playwright install chromium
+        npm run test:e2e
+
     All tests should pass before submitting changes.
+
+JEV (DEVELOPMENT-TIME DECISIONS)
+
+    Jev (TypeSafe System One) is used while developing, never inside the
+    extension. Put TYPESAFE_API_KEY in .env (ignored by git), then:
+
+        npm run jev -- noul "Is this a flaky test?" --state "..."
+        npm run jev -- choice "Which fits?" --option a="..." --option b="..." --state "..."
+        npm run eval:heuristics               # Jev judges a corpus
+        npm run eval:heuristics -- --heldout  # corpus not used for tuning
+        npm run eval:heuristics -- --offline  # reuse recorded judgments
+
+    The extension's local rules (annotation type, "too vague" nudge,
+    "is this DOM change a new screen") are measured against Jev judgments
+    recorded in test/fixtures; npm test checks the agreement offline.
 
 LICENSE
 

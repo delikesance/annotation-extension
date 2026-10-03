@@ -7,36 +7,59 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
+  <div class="update-banner" id="update-banner" hidden>
+    <span id="update-text">Mise à jour disponible</span>
+    <button class="btn btn-small" id="btn-update" type="button">Télécharger</button>
+  </div>
+
   <main class="rail" id="rail">
     <header class="rail-header">
       <div class="rail-title-row">
         <div class="status" id="status">
           <span class="dot"></span>
-          <span id="status-text">Annotation</span>
+          <span id="status-text">Inactif</span>
         </div>
-        <div class="tools">
-          <button class="btn btn-small" id="btn-pause" type="button">
-            <span id="btn-pause-text">Pause</span><span class="kbd">P</span>
-          </button>
-          <button class="icon-btn" id="btn-close" type="button" aria-label="Quitter le mode annotation" title="Quitter le mode annotation (Échap)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
+        <button class="icon-btn" id="btn-close" type="button" aria-label="Quitter l'annotateur" title="Quitter l'annotateur">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
-      <div class="counter" id="counter">0 annotation</div>
+      <div class="counter" id="counter">Cliquez sur l'icône de l'extension pour démarrer.</div>
     </header>
 
-    <section class="list" id="list" aria-label="Annotations"></section>
+    <div class="status-line" id="status-line" role="status" hidden></div>
 
-    <footer class="rail-footer">
-      <button class="btn btn-primary" id="btn-export" type="button">
-        <span>Exporter la session</span><span class="kbd">Ctrl E</span>
-      </button>
-      <button class="btn" id="btn-next" type="button">
-        <span>Écran suivant</span><span class="kbd">N</span>
-      </button>
-    </footer>
+    <section class="view" id="view-list">
+      <div class="add-row">
+        <button class="btn btn-accent btn-add" id="btn-annotate" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span id="btn-annotate-text">Ajouter une annotation</span>
+          <span class="kbd">A</span>
+        </button>
+      </div>
+      <div class="list" id="list" aria-label="Annotations"></div>
+      <footer class="rail-footer">
+        <button class="btn btn-primary" id="btn-export" type="button">
+          <span>Exporter la session</span><span class="kbd">Ctrl E</span>
+        </button>
+        <button class="btn" id="btn-next" type="button">
+          <span>Nouvel écran</span><span class="kbd">N</span>
+        </button>
+      </footer>
+    </section>
+
+    <section class="view" id="view-export" hidden>
+      <div class="export-head">
+        <button class="btn btn-small" id="btn-back" type="button">← Retour</button>
+        <div class="export-title">
+          <h1>Exporter la session</h1>
+          <span id="export-badge" class="export-badge"></span>
+        </div>
+      </div>
+      <div class="export-body" id="export-body"></div>
+      <footer class="rail-footer" id="export-footer"></footer>
+    </section>
   </main>
+  <script src="insights.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
