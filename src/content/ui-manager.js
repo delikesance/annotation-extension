@@ -838,10 +838,22 @@ class AnnotatorUIManager {
     saveBtn.addEventListener('click', saveAction);
     deleteBtn.addEventListener('click', deleteAction);
 
-    ['keydown', 'keyup', 'keypress'].forEach(evtType => {
+    // Stop mouse/pointer events from bubbling to page freeze handlers
+    ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'click'].forEach(evtType => {
       card.addEventListener(evtType, (e) => {
         e.stopPropagation();
       });
+    });
+
+    ['keydown', 'keyup', 'keypress', 'input'].forEach(evtType => {
+      card.addEventListener(evtType, (e) => {
+        e.stopPropagation();
+      });
+    });
+
+    textarea.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      textarea.focus();
     });
 
     textarea.addEventListener('keydown', (e) => {
@@ -859,7 +871,14 @@ class AnnotatorUIManager {
     this.activeCommentCard = card;
     this.currentEditingAnnotation = annotation;
 
-    setTimeout(() => textarea.focus(), 50);
+    setTimeout(() => {
+      if (textarea) {
+        textarea.focus();
+        if (annotation.comment) {
+          textarea.select();
+        }
+      }
+    }, 30);
   }
 
   deleteAnnotation(annotation) {

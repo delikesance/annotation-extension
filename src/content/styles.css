@@ -295,7 +295,8 @@ html.ai-annotator-page-frozen * {
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(99, 102, 241, 0.2);
   padding: 14px 16px;
   z-index: 2147483646;
-  pointer-events: auto;
+  pointer-events: auto !important;
+  user-select: auto !important;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -358,12 +359,16 @@ html.ai-annotator-page-frozen * {
   resize: vertical;
   outline: none;
   font-family: inherit;
+  pointer-events: auto !important;
+  user-select: text !important;
+  cursor: text !important;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .ai-comment-textarea:focus {
   border-color: #6366f1;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+  cursor: text !important;
 }
 
 .ai-comment-footer {

@@ -158,11 +158,16 @@ test('Real Browser End-to-End: Full Annotation Lifecycle in Chromium with Bottom
     await page.click('#nav-profile-btn');
     await page.waitForTimeout(200);
 
-    await page.evaluate(() => {
+    // Type via real keyboard events
+    await page.keyboard.type('Remplacer ce bouton par un avatar utilisateur circulaire avec menu déroulant');
+    await page.waitForTimeout(100);
+
+    const typedValue1 = await page.evaluate(() => {
       const root = document.getElementById('ai-web-annotator-root');
       const textarea = root.shadowRoot.querySelector('.ai-comment-textarea');
-      textarea.value = 'Remplacer ce bouton par un avatar utilisateur circulaire avec menu déroulant';
+      return textarea ? textarea.value : '';
     });
+    assert.equal(typedValue1, 'Remplacer ce bouton par un avatar utilisateur circulaire avec menu déroulant', 'Keyboard typing into comment textarea must work flawlessly');
 
     await page.keyboard.press('Control+Enter');
     await page.waitForTimeout(200);
@@ -176,11 +181,16 @@ test('Real Browser End-to-End: Full Annotation Lifecycle in Chromium with Bottom
     await page.click('#cta-button');
     await page.waitForTimeout(200);
 
-    await page.evaluate(() => {
+    // Type via real keyboard events for Annotation #2
+    await page.keyboard.type('Le bouton CTA déborde sur mobile et doit passer en flex column');
+    await page.waitForTimeout(100);
+
+    const typedValue2 = await page.evaluate(() => {
       const root = document.getElementById('ai-web-annotator-root');
       const textarea = root.shadowRoot.querySelector('.ai-comment-textarea');
-      textarea.value = 'Le bouton CTA déborde sur mobile et doit passer en flex column';
+      return textarea ? textarea.value : '';
     });
+    assert.equal(typedValue2, 'Le bouton CTA déborde sur mobile et doit passer en flex column', 'Keyboard typing into annotation #2 must work');
 
     await page.keyboard.press('Control+Enter');
     await page.waitForTimeout(200);

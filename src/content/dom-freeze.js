@@ -30,10 +30,28 @@ class DOMFreezeManager {
     const root = document.getElementById('ai-web-annotator-root');
     const path = event.composedPath ? event.composedPath() : [];
     if (root && path.includes(root)) return true;
-    if (event.target) {
-      if (root && root.contains(event.target)) return true;
-      if (typeof event.target.className === 'string' && event.target.className.includes('ai-')) return true;
+
+    // Check Shadow DOM internal hierarchy
+    if (root && root.shadowRoot) {
+      if (root.shadowRoot.activeElement) return true;
+      if (event.target && (root.shadowRoot.contains(event.target) || root.shadowRoot === event.target)) return true;
     }
+
+    if (event.target) {
+      if (root && (root === event.target || root.contains(event.target))) return true;
+      if (typeof event.target.className === 'string' && event.target.className.includes('ai-')) return true;
+      if (event.target.id && event.target.id.includes('ai-')) return true;
+    }
+
+    // If extension is actively editing a comment or modal is open, don't intercept typing
+    if (typeof window !== 'undefined' && window.AnnotatorUI) {
+      if (window.AnnotatorUI.isEditingComment || window.AnnotatorUI.activeCommentCard || window.AnnotatorUI.activeExportModal) {
+        if (document.activeElement === root || document.activeElement === document.body) {
+          return true;
+        }
+      }
+    }
+
     return false;
   }
 
@@ -68,6 +86,13 @@ class DOMFreezeManager {
 
     if (this.isExtensionEvent(event)) {
       return;
+    }
+
+    // If editing comment or interacting with UI, allow all keyboard inputs
+    if (typeof window !== 'undefined' && window.AnnotatorUI) {
+      if (window.AnnotatorUI.isEditingComment || window.AnnotatorUI.activeCommentCard || window.AnnotatorUI.activeExportModal) {
+        return;
+      }
     }
 
     // Allow F12, DevTools shortcuts, but prevent page shortcuts
