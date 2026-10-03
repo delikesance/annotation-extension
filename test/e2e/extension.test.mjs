@@ -127,7 +127,7 @@ test('6. editing and deleting an existing annotation from the panel', async () =
   assert.equal(await panelText('#counter'), '1 annotation');
 });
 
-test('7. ambient DOM noise on the page (ticker) does not create a screen', async () => {
+test('7. DOM changes on the page (ticker) never create a screen by themselves', async () => {
   await panel.click('#btn-annotate'); // leave annotate mode: free navigation
   await panel.locator('#status-text', { hasText: 'Navigation libre' }).waitFor();
   await inPage(() => { window.__tickerOn = true; });
@@ -137,9 +137,10 @@ test('7. ambient DOM noise on the page (ticker) does not create a screen', async
   assert.equal(await overlayCount(), 1, 'the annotation is still on its screen');
 });
 
-test('8. opening a dialog on the page starts a new screen automatically, with a real screenshot of the previous one', async () => {
+test('8. after the page changes, "Nouvel écran" saves the annotated screen with a real screenshot', async () => {
   await env.page.click('#open-menu');
   await env.page.locator('#dialog').waitFor();
+  await panel.click('#btn-next');
   await panel.locator('#list .note', { hasText: '1 écran déjà capturé' }).waitFor({ timeout: 8000 });
   assert.equal(await overlayCount(), 0, 'pins of the previous screen are cleared');
   assert.match(await panelText('#counter'), /Écran #2/);
@@ -323,7 +324,7 @@ test('15. a newer release shows the update banner in the panel and its button op
   await fresh.close(); // one panel per tab, like Chrome's side panel
 });
 
-test('16. panels shown/hidden by class toggles (no node added): each panel gets its own screen and its pins sit on the right elements', async () => {
+test('16. panels shown/hidden by class toggles: "Nouvel écran" gives each panel its own screen and its pins sit on the right elements', async () => {
   await env.page.goto(env.url, { waitUntil: 'load' });
   await env.injectAndToggle();
   await panel.locator('#status-text', { hasText: /Navigation libre|Mode annotation/ }).waitFor();
@@ -344,6 +345,7 @@ test('16. panels shown/hidden by class toggles (no node added): each panel gets 
   await panel.click('#btn-annotate');
   await panel.locator('#status-text', { hasText: 'Navigation libre' }).waitFor();
   await env.page.click('#toggle-p2');
+  await panel.click('#btn-next');
   await panel.locator('#list .note', { hasText: '1 écran déjà capturé' }).waitFor({ timeout: 8000 });
   assert.equal(await overlayCount(), 0, 'screen 1 pins are gone');
 

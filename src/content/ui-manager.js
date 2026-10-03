@@ -142,11 +142,7 @@ class AnnotatorUIManager {
   }
 
   broadcastPanelState(overrides) {
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
-    try {
-      const result = chrome.runtime.sendMessage({ action: 'RAIL_STATE', state: { ...this.buildPanelState(), ...(overrides || {}) } });
-      if (result && result.catch) result.catch(() => {});
-    } catch (_) {}
+    this.sendToBackground({ action: 'RAIL_STATE', state: { ...this.buildPanelState(), ...(overrides || {}) } });
   }
 
   /** Short feedback line shown in the panel (replaces on-page toasts). */
@@ -183,12 +179,18 @@ class AnnotatorUIManager {
     }
   }
 
-  requestSidePanel() {
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+  /** chrome.runtime.sendMessage that never throws (stale content scripts after an extension reload throw synchronously). */
+  sendToBackground(message) {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return Promise.resolve(undefined);
     try {
-      const result = chrome.runtime.sendMessage({ action: 'OPEN_SIDE_PANEL' });
-      if (result && result.catch) result.catch(() => {});
-    } catch (_) {}
+      return Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => undefined);
+    } catch (_) {
+      return Promise.resolve(undefined);
+    }
+  }
+
+  requestSidePanel() {
+    this.sendToBackground({ action: 'OPEN_SIDE_PANEL' });
   }
 
   updateCounter() {
@@ -287,6 +289,7 @@ class AnnotatorUIManager {
   // ------------------------------------------------------------------
 
   startDomObserver() {
+    if (!AnnotatorUIManager.AUTO_SCREEN_ON_DOM_CHANGE) return; // new screens are taken with the "Nouvel écran" button
     if (this.domObserver || typeof MutationObserver === 'undefined') return;
     this.domObserver = new MutationObserver((records) => this.onDomMutations(records));
     // Panels are often shown/hidden by toggling a class, style or attribute rather than adding nodes.
@@ -438,14 +441,10 @@ class AnnotatorUIManager {
 
   async captureScreen() {
     let screenDataUrl = AnnotatorUIManager.PLACEHOLDER_PNG;
-    try {
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        const response = await chrome.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
-        if (response && response.success && response.dataUrl) {
-          screenDataUrl = response.dataUrl;
-        }
-      }
-    } catch (_) {}
+    const response = await this.sendToBackground({ action: 'CAPTURE_VISIBLE_TAB' });
+    if (response && response.success && response.dataUrl) {
+      screenDataUrl = response.dataUrl;
+    }
     return screenDataUrl;
   }
 
@@ -527,11 +526,7 @@ class AnnotatorUIManager {
 
   /** Persists the session through the background, which knows this tab's id (needed to restore it after a navigation). */
   syncSessionToStorage() {
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
-    try {
-      const result = chrome.runtime.sendMessage({ action: 'SESSION_SYNC', session: this.buildSessionPayload() });
-      if (result && result.catch) result.catch(() => {});
-    } catch (_) {}
+    this.sendToBackground({ action: 'SESSION_SYNC', session: this.buildSessionPayload() });
   }
 
   /** The page is going away (navigation): keep its annotated screen in the session so the next page continues it. */
@@ -586,10 +581,8 @@ class AnnotatorUIManager {
     this.clearSessionStorage();
     this.broadcastPanelState({ active: false, annotations: [], editing: null, exportView: null, status: null, previousScreens: 0, counterText: '0 annotation' });
 
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({ action: 'SET_BADGE', text: '' }).catch(() => {});
-      chrome.runtime.sendMessage({ action: 'ANNOTATOR_STOPPED' }).catch(() => {});
-    }
+    this.sendToBackground({ action: 'SET_BADGE', text: '' });
+    this.sendToBackground({ action: 'ANNOTATOR_STOPPED' });
   }
 
   // ------------------------------------------------------------------
@@ -868,13 +861,7 @@ class AnnotatorUIManager {
     this.syncSessionToStorage();
     this.refreshScreenShot();
 
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({
-        action: 'SET_BADGE',
-        text: String(this.annotations.length),
-        color: '#C9400F'
-      }).catch(() => {});
-    }
+    this.sendToBackground({ action: 'SET_BADGE', text: String(this.annotations.length), color: '#C9400F' });
   }
 
   deleteAnnotation(annotation) {
@@ -890,13 +877,7 @@ class AnnotatorUIManager {
     this.syncSessionToStorage();
     if (this.annotations.length > 0) this.refreshScreenShot(); else this.screenShot = null;
 
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({
-        action: 'SET_BADGE',
-        text: this.annotations.length > 0 ? String(this.annotations.length) : '',
-        color: '#C9400F'
-      }).catch(() => {});
-    }
+    this.sendToBackground({ action: 'SET_BADGE', text: this.annotations.length > 0 ? String(this.annotations.length) : '', color: '#C9400F' });
   }
 
   closeCommentModal() {
@@ -1128,6 +1109,8 @@ AnnotatorUIManager.isNewScreen = function (changes) {
   return addedArea >= AnnotatorUIManager.NEW_SCREEN_MIN_AREA;
 };
 AnnotatorUIManager.PLACEHOLDER_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+// Automatic new screen when the page changes: off, the "Nouvel écran" button is the explicit way.
+AnnotatorUIManager.AUTO_SCREEN_ON_DOM_CHANGE = false;
 AnnotatorUIManager.STALE_TOLERANCE_PX = 4;
 AnnotatorUIManager.DOM_CHANGE_THRESHOLD = 3; // element nodes added/removed within one window
 AnnotatorUIManager.DOM_CHANGE_WINDOW_MS = 500;

@@ -130,7 +130,7 @@
     if (state.annotations.length === 0 && !editing) {
       const hint = state.mode === 'annotate'
         ? 'Cliquez un élément de la page pour poser un repère. Vous pouvez en poser plusieurs.'
-        : 'Cliquez « Ajouter une annotation », puis un élément de la page. Si la page change (menu, panneau, onglet), un nouvel écran est capturé automatiquement.';
+        : 'Cliquez « Ajouter une annotation », puis un élément de la page. Quand la page change (menu, panneau, onglet), cliquez « Nouvel écran » pour capturer l\'écran suivant.';
       list.appendChild(el('div', 'empty', hint));
     }
 

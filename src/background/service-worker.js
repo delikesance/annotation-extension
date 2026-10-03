@@ -79,7 +79,12 @@ async function getGateway() {
 
 async function uploadToGateway(base, page) {
   const bytes = dataUrlToBytes(page.dataUrl);
-  const res = await fetch(`${base}/v1/upload?name=ecran-${page.stepIndex}`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: bytes });
+  let res;
+  try {
+    res = await fetch(`${base}/v1/upload?name=ecran-${page.stepIndex}`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: bytes });
+  } catch (_) {
+    throw new Error(`serveur d'images injoignable (${new URL(base).host})`);
+  }
   let body = null;
   try { body = await res.json(); } catch (_) {}
   if (!res.ok || !body || !body.url) throw new Error((body && body.error) || `Serveur d'images indisponible (HTTP ${res.status})`);

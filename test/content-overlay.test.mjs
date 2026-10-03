@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createContentEnv, wait } from './helpers/content-env.mjs';
+import { createRequire } from 'node:module';
+
+const AUTO_FLAG = {
+  get: () => createRequire(import.meta.url)('../src/content/ui-manager.js').AUTO_SCREEN_ON_DOM_CHANGE,
+  set: (v) => { createRequire(import.meta.url)('../src/content/ui-manager.js').AUTO_SCREEN_ON_DOM_CHANGE = v; }
+};
 
 test('DOMFreezeManager - suppresses submit/contextmenu and lets clicks reach the annotator', () => {
   const { window } = createContentEnv();
@@ -152,6 +158,7 @@ test('panel state is fully serialisable (no DOM nodes) and Escape leaves annotat
 
 test('DOM change under saved annotations starts a new screen automatically when a menu/dialog opens', async () => {
   const { window, ui, lastState, clickElement } = createContentEnv();
+  const autoBefore = AUTO_FLAG.get(); AUTO_FLAG.set(true); // the feature is off by default
   const savedWindow = ui.constructor.DOM_CHANGE_WINDOW_MS;
   ui.constructor.DOM_CHANGE_WINDOW_MS = 30;
   ui.activate();
@@ -185,11 +192,13 @@ test('DOM change under saved annotations starts a new screen automatically when 
   assert.equal(ui.lastScreenDecision.source, 'local');
 
   ui.constructor.DOM_CHANGE_WINDOW_MS = savedWindow;
+  AUTO_FLAG.set(autoBefore);
   ui.deactivate();
 });
 
 test('ambient DOM noise (ticker, clock, spinner) does not create a screen; a dialog does', async () => {
   const { window, ui, lastState, clickElement } = createContentEnv();
+  const autoBefore = AUTO_FLAG.get(); AUTO_FLAG.set(true); // the feature is off by default
   const saved = ui.constructor.DOM_CHANGE_WINDOW_MS;
   ui.constructor.DOM_CHANGE_WINDOW_MS = 30;
   ui.activate();
@@ -221,6 +230,7 @@ test('ambient DOM noise (ticker, clock, spinner) does not create a screen; a dia
   assert.equal(lastState().previousScreens, 1);
 
   ui.constructor.DOM_CHANGE_WINDOW_MS = saved;
+  AUTO_FLAG.set(autoBefore);
   ui.deactivate();
 });
 
@@ -238,6 +248,7 @@ test('isNewScreen rule: structural elements and large areas count, ambient names
 
 test('DOM changes without saved annotations, and changes inside the overlay itself, never create screens', async () => {
   const { window, ui } = createContentEnv();
+  const autoBefore = AUTO_FLAG.get(); AUTO_FLAG.set(true); // the feature is off by default
   const saved = ui.constructor.DOM_CHANGE_WINDOW_MS;
   ui.constructor.DOM_CHANGE_WINDOW_MS = 30;
   ui.activate();
@@ -246,6 +257,7 @@ test('DOM changes without saved annotations, and changes inside the overlay itse
   await wait(120);
   assert.equal(ui.session.pages.length, 0);
   ui.constructor.DOM_CHANGE_WINDOW_MS = saved;
+  AUTO_FLAG.set(autoBefore);
   ui.deactivate();
 });
 
@@ -370,4 +382,42 @@ test('hosted image URLs are woven into the agent prompt, the GitHub issue and th
   assert.ok(json.aiPrompt.includes('https://cdn.test/a/ecran-1.png'));
   assert.deepEqual(view.pages.map(p => p.imageUrl), ['https://cdn.test/a/ecran-1.png', 'https://cdn.test/b/ecran-2.png']);
   ui.deactivate();
+});
+
+test('by default a DOM change never starts a new screen: only the "Nouvel écran" action does', async () => {
+  const { window, ui, clickElement } = createContentEnv();
+  assert.equal(ui.constructor.AUTO_SCREEN_ON_DOM_CHANGE, false);
+  const saved = ui.constructor.DOM_CHANGE_WINDOW_MS;
+  ui.constructor.DOM_CHANGE_WINDOW_MS = 30;
+  ui.activate();
+  ui.handleRailAction('annotate');
+  clickElement(window.document.getElementById('cta-button'));
+  ui.handleRailAction('save', { comment: 'Premier écran', type: 'style' });
+  await wait(100);
+  ui.handleRailAction('annotate');
+
+  const host = window.document.getElementById('menu-host');
+  const dialog = window.document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  host.appendChild(dialog);
+  for (let i = 0; i < 5; i++) host.appendChild(window.document.createElement('button'));
+  host.style.display = 'none';
+  await wait(200);
+  assert.equal(ui.session.pages.length, 0, 'no automatic screen');
+  assert.equal(ui.annotations.length, 1, 'the annotation stays');
+  assert.equal(ui.domObserver, null, 'no observer is even running');
+
+  ui.handleRailAction('annotate');
+  await ui.nextScreen();
+  assert.equal(ui.session.pages.length, 1, 'the button takes the screen');
+  ui.constructor.DOM_CHANGE_WINDOW_MS = saved;
+  ui.deactivate();
+});
+
+test('a stale or invalidated extension context never throws from the page script', () => {
+  const { ui, window } = createContentEnv();
+  window.chrome.runtime.sendMessage = () => { throw new Error('Extension context invalidated.'); };
+  assert.doesNotThrow(() => { ui.activate(); ui.handleRailAction('annotate'); ui.handleRailAction('annotate'); ui.deactivate(); });
+  window.chrome.runtime.sendMessage = () => undefined;
+  assert.doesNotThrow(() => { ui.activate(); ui.deactivate(); });
 });

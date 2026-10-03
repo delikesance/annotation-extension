@@ -50,8 +50,8 @@ USAGE
     panel; the type (Style, Bug, Texte) is suggested and vague comments are
     flagged. Several annotations can be placed in a row. Select "Terminer
     l'annotation" (Escape) to browse freely again: open menus, panels and
-    dialogs. When the page changes (dialog, menu, route...), the annotated
-    screen is saved and a new screen starts automatically.
+    dialogs. When the page changes (dialog, menu, route...), select "Nouvel
+    écran" (key N) to save the annotated screen and start a new one.
 
     "Exporter la session" opens the export view in the panel:
 
