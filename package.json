@@ -1,6 +1,6 @@
 {
   "name": "ai-web-annotator",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Chrome Extension (Manifest V3) to interactively annotate web pages and export structured context for AI",
   "main": "src/background/service-worker.js",
   "scripts": {
