@@ -145,11 +145,31 @@ class AnnotatorUIManager {
     this.hud.querySelector('#ai-btn-cancel').addEventListener('click', () => this.deactivate());
     this.hud.querySelector('#ai-btn-minimize').addEventListener('click', () => {
       this.hud.classList.toggle('ai-hud-collapsed');
+      this.syncPageOffset();
     });
 
     this.shadow.appendChild(this.hud);
     this.renderRail();
     this.checkUpdateStatus();
+  }
+
+  setHudVisible(visible) {
+    if (!this.hud) return;
+    this.hud.style.display = visible ? 'flex' : 'none';
+    this.syncPageOffset();
+  }
+
+  /** While the rail is open, shrink the page so the rail sits to the right of it instead of covering it. */
+  syncPageOffset() {
+    const root = document.documentElement;
+    const open = this.hud && this.hud.style.display !== 'none'
+      && !this.hud.classList.contains('ai-hud-collapsed')
+      && this.host && this.host.style.display !== 'none';
+    if (open) {
+      root.style.setProperty('width', 'calc(100% - 340px)', 'important');
+    } else {
+      root.style.removeProperty('width');
+    }
   }
 
   /** Rebuilds the annotation list shown in the rail. */
@@ -426,7 +446,7 @@ class AnnotatorUIManager {
 
     this.showToast('Capture et validation de l\'écran...');
 
-    if (this.hud) this.hud.style.display = 'none';
+    if (this.hud) this.setHudVisible(false);
     if (this.highlightBox) this.highlightBox.style.display = 'none';
 
     await new Promise(r => setTimeout(r, 120));
@@ -441,7 +461,7 @@ class AnnotatorUIManager {
       }
     } catch (_) {}
 
-    if (this.hud) this.hud.style.display = 'flex';
+    if (this.hud) this.setHudVisible(true);
 
     if (!this.session.pages) {
       this.session.pages = [];
@@ -596,6 +616,7 @@ class AnnotatorUIManager {
     if (this.host) {
       this.host.style.display = 'none';
     }
+    this.syncPageOffset();
 
     this.clearSessionStorage();
 
@@ -1067,7 +1088,7 @@ class AnnotatorUIManager {
 
     this.showToast('Préparation de l\'exportation...');
 
-    this.hud.style.display = 'none';
+    this.setHudVisible(false);
     this.highlightBox.style.display = 'none';
 
     await new Promise(r => setTimeout(r, 150));
@@ -1081,7 +1102,7 @@ class AnnotatorUIManager {
         }
       }
 
-      this.hud.style.display = 'flex';
+      this.setHudVisible(true);
 
       // Save current page to session
       const allPages = [...(this.session.pages || [])];
@@ -1113,7 +1134,7 @@ class AnnotatorUIManager {
       this.showExportModal(allPages, promptText, payload);
 
     } catch (err) {
-      this.hud.style.display = 'flex';
+      this.setHudVisible(true);
       console.error('[AI Web Annotator] Export failed:', err);
       this.showToast(`Erreur : ${err.message}`);
     }
