@@ -37,5 +37,13 @@
       sendResponse({ success: true, isPaused: window.AnnotatorUI ? window.AnnotatorUI.isPaused : false });
       return false;
     }
+
+    if (message.action === 'UPDATE_AVAILABLE') {
+      if (window.AnnotatorUI && window.AnnotatorUI.showUpdateBadge) {
+        window.AnnotatorUI.showUpdateBadge(message.update);
+      }
+      sendResponse({ success: true });
+      return false;
+    }
   });
 })();

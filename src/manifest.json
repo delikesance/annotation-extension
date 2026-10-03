@@ -15,13 +15,15 @@
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
+  "update_url": "https://git.delikesance.cloud/delikesance/annotation-extension/raw/branch/main/updates.xml",
   "permissions": [
     "activeTab",
     "scripting",
     "downloads",
     "storage",
     "clipboardWrite",
-    "offscreen"
+    "offscreen",
+    "alarms"
   ],
   "icons": {
     "16": "icons/icon-16.png",

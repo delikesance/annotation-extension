@@ -138,6 +138,116 @@ class AnnotatorUIManager {
 
     this.setupHudDragging();
     this.shadow.appendChild(this.hud);
+    this.checkUpdateStatus();
+  }
+
+  async checkUpdateStatus() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const response = await chrome.runtime.sendMessage({ action: 'GET_UPDATE_INFO' });
+        if (response && response.update) {
+          this.showUpdateBadge(response.update);
+        }
+      }
+    } catch (_) {}
+  }
+
+  showUpdateBadge(update) {
+    if (!update || !this.hud) return;
+    let updateBtn = this.hud.querySelector('#ai-btn-update');
+    if (!updateBtn) {
+      updateBtn = document.createElement('button');
+      updateBtn.className = 'ai-hud-btn ai-hud-btn-update';
+      updateBtn.id = 'ai-btn-update';
+      updateBtn.title = `Nouvelle version v${update.version} disponible ! Cliquez pour voir ou télécharger.`;
+      updateBtn.innerHTML = `
+        <span class="ai-update-sparkle">✨</span>
+        <span class="ai-update-tag">MàJ v${update.version}</span>
+      `;
+      updateBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.showUpdateModal(update);
+      });
+
+      const exportBtn = this.hud.querySelector('#ai-btn-export');
+      if (exportBtn && exportBtn.parentNode) {
+        exportBtn.parentNode.insertBefore(updateBtn, exportBtn);
+      } else {
+        this.hud.appendChild(updateBtn);
+      }
+    }
+  }
+
+  showUpdateModal(update) {
+    if (!this.shadow) return;
+    const existing = this.shadow.querySelector('.ai-update-modal-backdrop');
+    if (existing) existing.remove();
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'ai-update-modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="ai-update-modal-card">
+        <div class="ai-update-modal-header">
+          <div class="ai-update-header-title">
+            <span class="ai-update-badge-icon">✨</span>
+            <div>
+              <h3 style="margin:0;font-size:15px;font-weight:700;color:#f8fafc;">Mise à jour disponible</h3>
+              <p style="margin:2px 0 0;font-size:12px;color:#94a3b8;">Version v${String(update.version || update.tagName).replace(/^v/, '')}</p>
+            </div>
+          </div>
+          <button class="ai-update-close-btn" id="ai-update-close" title="Fermer">✕</button>
+        </div>
+        <div class="ai-update-modal-body">
+          <p style="margin:0 0 10px;font-size:13px;color:#cbd5e1;line-height:1.5;">
+            Une nouvelle version de <strong>AI Web Annotator</strong> est disponible sur Forgejo !
+          </p>
+          ${update.releaseNotes ? `
+            <div class="ai-update-notes">
+              <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">Notes de version :</div>
+              <pre style="margin:0;font-size:12px;color:#e2e8f0;white-space:pre-wrap;font-family:inherit;">${this.escapeHtml(update.releaseNotes)}</pre>
+            </div>
+          ` : ''}
+        </div>
+        <div class="ai-update-modal-footer">
+          <a href="${update.downloadUrl || update.releaseUrl}" target="_blank" class="ai-update-btn-download" id="ai-update-download-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Télécharger (.zip)</span>
+          </a>
+          <a href="${update.releaseUrl || update.downloadUrl}" target="_blank" class="ai-update-btn-view" id="ai-update-release-btn">
+            <span>Voir la Release</span>
+          </a>
+        </div>
+      </div>
+    `;
+
+    backdrop.querySelector('#ai-update-close').addEventListener('click', () => backdrop.remove());
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) backdrop.remove();
+    });
+
+    const dlBtn = backdrop.querySelector('#ai-update-download-btn');
+    if (dlBtn) {
+      dlBtn.addEventListener('click', () => {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: 'OPEN_URL', url: update.downloadUrl || update.releaseUrl });
+        }
+      });
+    }
+
+    const relBtn = backdrop.querySelector('#ai-update-release-btn');
+    if (relBtn) {
+      relBtn.addEventListener('click', () => {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: 'OPEN_URL', url: update.releaseUrl || update.downloadUrl });
+        }
+      });
+    }
+
+    this.shadow.appendChild(backdrop);
   }
 
   setupHudDragging() {
@@ -226,6 +336,7 @@ class AnnotatorUIManager {
 
     this.host.style.display = 'block';
     this.updateHUDState();
+    this.checkUpdateStatus();
     this.showToast('🎯 Mode Annotation activé : Cliquez sur un élément pour annoter.');
   }
 

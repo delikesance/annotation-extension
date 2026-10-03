@@ -52,6 +52,9 @@ function createMockEnvironment() {
         if (msg.action === 'DOWNLOAD_FILE') {
           return { success: true, downloadId: 101 };
         }
+        if (msg.action === 'GET_UPDATE_INFO') {
+          return { success: true, update: window.__mockUpdate || null };
+        }
         return { success: true };
       }
     }
@@ -347,5 +350,50 @@ test('AnnotatorUIManager - typing in comment textarea completely blocks website 
 
   window.AnnotatorUI.deactivate();
 });
+
+test('AnnotatorUIManager - displays update badge when update is available and opens modal', async () => {
+  const env = createMockEnvironment();
+  const { window } = env;
+
+  window.__mockUpdate = {
+    version: '1.2.0',
+    tagName: 'v1.2.0',
+    name: 'AI Web Annotator v1.2.0',
+    releaseNotes: '- Added auto-update system\n- Improved UI dock',
+    downloadUrl: 'https://git.delikesance.cloud/releases/v1.2.0/ai-web-annotator-v1.2.0.zip',
+    releaseUrl: 'https://git.delikesance.cloud/releases/tag/v1.2.0'
+  };
+
+  window.AnnotatorUI.activate();
+
+  // Wait tick for async checkUpdateStatus
+  await new Promise(r => setTimeout(r, 10));
+
+  const shadow = window.AnnotatorUI.shadow;
+  const updateBtn = shadow.querySelector('#ai-btn-update');
+  assert.ok(updateBtn, 'Update button must be rendered in HUD dock');
+  assert.ok(updateBtn.textContent.includes('MàJ v1.2.0'), 'Badge should show new version number');
+
+  // Click update button to open modal
+  updateBtn.click();
+
+  const modal = shadow.querySelector('.ai-update-modal-backdrop');
+  assert.ok(modal, 'Update modal must be opened upon clicking badge');
+  assert.ok(modal.textContent.includes('v1.2.0'), 'Modal should display update version');
+  assert.ok(modal.textContent.includes('Added auto-update system'), 'Modal should display release notes');
+
+  const dlLink = modal.querySelector('#ai-update-download-btn');
+  assert.ok(dlLink, 'Download button must exist');
+  assert.equal(dlLink.getAttribute('href'), window.__mockUpdate.downloadUrl);
+
+  const closeBtn = modal.querySelector('#ai-update-close');
+  assert.ok(closeBtn, 'Close button must exist');
+  closeBtn.click();
+
+  assert.equal(shadow.querySelector('.ai-update-modal-backdrop'), null, 'Modal must close on close button click');
+
+  window.AnnotatorUI.deactivate();
+});
+
 
 

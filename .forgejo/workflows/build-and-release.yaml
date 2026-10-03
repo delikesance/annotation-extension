@@ -71,4 +71,21 @@ jobs:
             -H "Content-Type: multipart/form-data" \
             -F "attachment=@$ZIP_FILE"
 
-          echo "Release package $ZIP_NAME successfully published!"
+          if [ -f dist/updates.xml ]; then
+            echo "Uploading updates.xml to release..."
+            curl -s -X POST "$API_URL/repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets?name=updates.xml" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: multipart/form-data" \
+              -F "attachment=@dist/updates.xml"
+          fi
+
+          if [ -f dist/version.json ]; then
+            echo "Uploading version.json to release..."
+            curl -s -X POST "$API_URL/repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets?name=version.json" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: multipart/form-data" \
+              -F "attachment=@dist/version.json"
+          fi
+
+          echo "Release package and metadata successfully published!"
+

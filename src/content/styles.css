@@ -806,3 +806,175 @@ html.ai-annotator-page-frozen * {
   pointer-events: none;
   animation: ai-fade-in 0.2s ease-out;
 }
+
+/* ==========================================================================
+   Update Notification & Modal
+   ========================================================================== */
+.ai-hud-btn-update {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(249, 115, 22, 0.25));
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fef08a;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+  animation: ai-pulse-glow 2.5s infinite;
+}
+
+.ai-hud-btn-update:hover {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.35), rgba(249, 115, 22, 0.4));
+  border-color: rgba(245, 158, 11, 0.7);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.4);
+}
+
+@keyframes ai-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
+  }
+}
+
+.ai-update-sparkle {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ai-update-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483647;
+  pointer-events: auto;
+  animation: ai-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ai-update-modal-card {
+  background: #0b0f19;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(245, 158, 11, 0.2);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 440px;
+  overflow: hidden;
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-update-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ai-update-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-update-badge-icon {
+  font-size: 20px;
+  background: rgba(245, 158, 11, 0.15);
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.ai-update-close-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 16px;
+  cursor: pointer !important;
+  padding: 6px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.ai-update-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ai-update-modal-body {
+  padding: 18px 20px;
+}
+
+.ai-update-notes {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.ai-update-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.ai-update-btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #4f46e5;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer !important;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.ai-update-btn-download:hover {
+  background: #6366f1;
+  transform: translateY(-1px);
+}
+
+.ai-update-btn-view {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-decoration: none;
+  cursor: pointer !important;
+  transition: all 0.15s;
+}
+
+.ai-update-btn-view:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
