@@ -224,7 +224,7 @@ test('Real Browser End-to-End: Multi-Page Session and Pause Mode in Chromium', a
     });
 
     assert.ok(exportData, 'Multi-page export modal must render');
-    assert.match(exportData.stepPill, /2 étapes/i, 'Step pill must indicate 2 steps in session');
+    assert.match(exportData.stepPill, /2 (étapes|écrans)/i, 'Step pill must indicate 2 screens/steps in session');
 
     // Verify chronological User Journey prompt structure
     assert.ok(exportData.promptPreview.includes('Étape #1'), 'Prompt must contain Étape #1');

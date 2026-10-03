@@ -157,7 +157,34 @@ test('Real Browser End-to-End: Next Screen Workflow in Chromium', async () => {
     assert.ok(exportData.prompt.includes('[Point #1]'), 'Prompt contains Point #1');
     assert.ok(exportData.prompt.includes('[Point #2]'), 'Prompt contains Point #2');
 
-    console.log('[E2E Next Screen] Next Screen workflow passed 100%!');
+    // 7. Test Export Modal Screen Tabs & Batch Download Button in Shadow DOM
+    const modalUi = await page.evaluate(() => {
+      const root = document.getElementById('ai-web-annotator-root');
+      const tabs = Array.from(root.shadowRoot.querySelectorAll('.ai-screen-tab')).map(t => t.textContent.trim());
+      const dlAllBtnText = root.shadowRoot.querySelector('#ai-btn-dl-all-png')?.textContent?.trim();
+      const dlPngText = root.shadowRoot.querySelector('#ai-dl-png-text')?.textContent?.trim();
+      return { tabs, dlAllBtnText, dlPngText };
+    });
+
+    assert.equal(modalUi.tabs.length, 2, 'Must have 2 screen tabs in export modal');
+    assert.ok(modalUi.dlAllBtnText.includes('Tout télécharger (2 images)'), 'Batch download button must display total 2 images');
+    assert.ok(modalUi.dlPngText.includes('écran #2'), 'Initial download button is for active screen 2');
+
+    // Click Tab 1
+    await page.evaluate(() => {
+      const root = document.getElementById('ai-web-annotator-root');
+      const tab1 = root.shadowRoot.querySelectorAll('.ai-screen-tab')[0];
+      tab1.click();
+    });
+    await page.waitForTimeout(100);
+
+    const updatedDlText = await page.evaluate(() => {
+      const root = document.getElementById('ai-web-annotator-root');
+      return root.shadowRoot.querySelector('#ai-dl-png-text')?.textContent?.trim();
+    });
+    assert.ok(updatedDlText.includes('écran #1'), 'Download button text must switch to screen #1');
+
+    console.log('[E2E Next Screen] Next Screen & Multi-Image download passed 100%!');
   } finally {
     await context.close();
     server.close();

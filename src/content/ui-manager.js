@@ -1174,7 +1174,9 @@ class AnnotatorUIManager {
     }
 
     const totalPoints = pages.reduce((acc, p) => acc + (p.annotations?.length || 0), 0);
-    const activePage = pages[pages.length - 1] || { dataUrl: '' };
+    let selectedPageIndex = pages.length - 1;
+    let activePage = pages[selectedPageIndex] || { dataUrl: '', stepIndex: 1 };
+    const isMultiScreen = pages.length > 1;
 
     const modal = document.createElement('div');
     modal.className = 'ai-export-backdrop';
@@ -1183,17 +1185,31 @@ class AnnotatorUIManager {
         <div class="ai-export-header">
           <div class="ai-export-title-row">
             <span class="ai-export-pill">${totalPoints} annotation${totalPoints > 1 ? 's' : ''}</span>
-            ${pages.length > 1 ? `<span class="ai-export-step-pill">${pages.length} étapes de navigation</span>` : ''}
+            ${isMultiScreen ? `<span class="ai-export-step-pill">${pages.length} écrans capturés</span>` : ''}
             <h3 class="ai-export-title">Annotations Prêtes pour l'IA</h3>
           </div>
           <button class="ai-export-close-btn" id="ai-modal-close" title="Fermer (Échap)">✕</button>
         </div>
 
         <div class="ai-export-body">
+          ${isMultiScreen ? `
+            <div class="ai-export-screens-nav">
+              <span class="ai-export-screens-label">Écrans capturés :</span>
+              <div class="ai-export-screens-tabs" id="ai-screens-tabs">
+                ${pages.map((p, idx) => `
+                  <button class="ai-screen-tab ${idx === selectedPageIndex ? 'active' : ''}" data-page-index="${idx}">
+                    <span class="ai-screen-tab-num">Écran #${p.stepIndex}</span>
+                    <span class="ai-screen-tab-count">${(p.annotations || []).length} ann.</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
           <div class="ai-export-preview-container">
             <img class="ai-export-thumbnail" id="ai-export-thumb" src="${activePage.dataUrl}" alt="Aperçu capture annotée" />
             <div class="ai-export-preview-overlay">
-              <span class="ai-export-preview-tag">✓ Capture avec flèches & indicateurs</span>
+              <span class="ai-export-preview-tag" id="ai-preview-tag">✓ Capture ${isMultiScreen ? `Écran #${activePage.stepIndex}` : 'avec flèches & indicateurs'}</span>
             </div>
           </div>
 
@@ -1204,14 +1220,14 @@ class AnnotatorUIManager {
           </div>
 
           <div class="ai-export-primary-actions">
-            <button class="ai-export-action-btn ai-btn-copy-image" id="ai-btn-copy-image" title="Copier l'image directement dans le presse-papier">
+            <button class="ai-export-action-btn ai-btn-copy-image" id="ai-btn-copy-image" title="Copier l'image de l'écran affiché dans le presse-papier">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                 <circle cx="8.5" cy="8.5" r="1.5"></circle>
                 <polyline points="21 15 16 10 5 21"></polyline>
               </svg>
               <div class="ai-action-text-group">
-                <span class="ai-action-main-text">Copier l'image</span>
+                <span class="ai-action-main-text" id="ai-copy-img-text">${isMultiScreen ? `Copier l'écran #${activePage.stepIndex}` : "Copier l'image"}</span>
                 <span class="ai-action-sub-text">PNG prêt à coller (Ctrl+V)</span>
               </div>
             </button>
@@ -1228,13 +1244,24 @@ class AnnotatorUIManager {
           </div>
 
           <div class="ai-export-secondary-actions">
-            <button class="ai-export-sub-btn" id="ai-btn-dl-png" title="Enregistrer l'image PNG">
+            ${isMultiScreen ? `
+              <button class="ai-export-sub-btn ai-btn-dl-all" id="ai-btn-dl-all-png" title="Télécharger toutes les captures PNG de la session">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>📥 Tout télécharger (${pages.length} images)</span>
+              </button>
+            ` : ''}
+
+            <button class="ai-export-sub-btn" id="ai-btn-dl-png" title="Enregistrer l'image PNG affichée">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              <span>Télécharger PNG</span>
+              <span id="ai-dl-png-text">${isMultiScreen ? `Télécharger écran #${activePage.stepIndex}` : 'Télécharger PNG'}</span>
             </button>
 
             <button class="ai-export-sub-btn" id="ai-btn-dl-json" title="Enregistrer JSON">
@@ -1259,9 +1286,31 @@ class AnnotatorUIManager {
       </div>
     `;
 
+    const thumbImg = modal.querySelector('#ai-export-thumb');
+    const previewTag = modal.querySelector('#ai-preview-tag');
+    const copyImgText = modal.querySelector('#ai-copy-img-text');
+    const dlPngText = modal.querySelector('#ai-dl-png-text');
+    const screenTabs = modal.querySelectorAll('.ai-screen-tab');
+
+    screenTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        screenTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const idx = parseInt(tab.getAttribute('data-page-index'), 10);
+        selectedPageIndex = idx;
+        activePage = pages[selectedPageIndex] || pages[0];
+
+        if (thumbImg) thumbImg.src = activePage.dataUrl;
+        if (previewTag) previewTag.textContent = `✓ Capture Écran #${activePage.stepIndex}`;
+        if (copyImgText) copyImgText.textContent = `Copier l'écran #${activePage.stepIndex}`;
+        if (dlPngText) dlPngText.textContent = `Télécharger écran #${activePage.stepIndex}`;
+      });
+    });
+
     const copyImgBtn = modal.querySelector('#ai-btn-copy-image');
     const copyPromptBtn = modal.querySelector('#ai-btn-copy-prompt');
     const dlPngBtn = modal.querySelector('#ai-btn-dl-png');
+    const dlAllBtn = modal.querySelector('#ai-btn-dl-all-png');
     const dlJsonBtn = modal.querySelector('#ai-btn-dl-json');
     const resumeBtn = modal.querySelector('#ai-btn-resume');
     const quitBtn = modal.querySelector('#ai-btn-quit-all');
@@ -1291,7 +1340,19 @@ class AnnotatorUIManager {
       const activePrompt = this.generateConsolidatedPrompt(pages, this.currentExportFormat);
       this.copyPromptToClipboard(activePrompt, copyPromptBtn);
     });
-    dlPngBtn.addEventListener('click', () => this.downloadPNG(activePage.dataUrl));
+    dlPngBtn.addEventListener('click', () => {
+      const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = isMultiScreen
+        ? `annotation-ecran-${activePage.stepIndex}-${hostname}-${timestamp}.png`
+        : `annotation-${hostname}-${timestamp}.png`;
+      this.downloadPNG(activePage.dataUrl, filename);
+    });
+
+    if (dlAllBtn) {
+      dlAllBtn.addEventListener('click', () => this.downloadAllPNG(pages));
+    }
+
     dlJsonBtn.addEventListener('click', () => this.downloadJSON(payload));
 
     const closeModal = () => {
@@ -1396,17 +1457,48 @@ class AnnotatorUIManager {
     }, 2500);
   }
 
-  async downloadPNG(dataUrl) {
+  async downloadPNG(dataUrl, customFilename = null) {
     const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = customFilename || `annotation-${hostname}-${timestamp}.png`;
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       await chrome.runtime.sendMessage({
         action: 'DOWNLOAD_FILE',
         url: dataUrl,
-        filename: `annotation-${hostname}-${timestamp}.png`
+        filename: filename
       });
     }
     this.showToast('💾 Capture PNG téléchargée.');
+  }
+
+  async downloadAllPNG(pages = []) {
+    if (!pages || !pages.length) return;
+    const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    this.showToast(`📥 Téléchargement de ${pages.length} image(s) en cours...`);
+
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      if (!page || !page.dataUrl) continue;
+      const stepNum = page.stepIndex || (i + 1);
+      const filename = `annotation-ecran-${stepNum}-${hostname}-${timestamp}.png`;
+
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        await chrome.runtime.sendMessage({
+          action: 'DOWNLOAD_FILE',
+          url: page.dataUrl,
+          filename: filename
+        });
+      }
+
+      // Small delay between downloads to prevent browser throttling/concurrency issues
+      if (i < pages.length - 1) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
+    this.showToast(`✅ ${pages.length} capture(s) PNG téléchargées !`);
   }
 
   async downloadJSON(payload) {

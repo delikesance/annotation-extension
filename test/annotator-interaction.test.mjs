@@ -461,6 +461,73 @@ test('AnnotatorUIManager - nextScreen() commits current screen, clears DOM, and 
   window.AnnotatorUI.deactivate();
 });
 
+test('AnnotatorUIManager - Export modal provides screen tabs and batch download for multi-screen sessions', async () => {
+  const env = createMockEnvironment();
+  const { window, sentMessages } = env;
+
+  const btn1 = window.document.getElementById('nav-link');
+  btn1.getBoundingClientRect = () => ({ top: 10, left: 10, width: 80, height: 30, x: 10, y: 10, bottom: 40, right: 90 });
+
+  window.AnnotatorUI.activate();
+
+  // Screen 1: Add 1 annotation
+  window.document.elementsFromPoint = () => [btn1, window.document.body];
+  btn1.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+  const ta1 = window.AnnotatorUI.activeCommentCard.querySelector('textarea');
+  ta1.value = 'Step 1 comment';
+  window.AnnotatorUI.activeCommentCard.querySelector('#ai-modal-save').click();
+
+  // Next Screen
+  await window.AnnotatorUI.nextScreen();
+  window.AnnotatorUI.resume();
+
+  // Screen 2: Add 1 annotation
+  btn1.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+  const ta2 = window.AnnotatorUI.activeCommentCard.querySelector('textarea');
+  ta2.value = 'Step 2 comment';
+  window.AnnotatorUI.activeCommentCard.querySelector('#ai-modal-save').click();
+
+  // Open Export Modal
+  await window.AnnotatorUI.finishAndShowExportModal();
+
+  const shadow = window.AnnotatorUI.shadow;
+  const modal = shadow.querySelector('.ai-export-backdrop');
+  assert.ok(modal, 'Export modal must be displayed');
+
+  // Verify tabs
+  const tabs = modal.querySelectorAll('.ai-screen-tab');
+  assert.equal(tabs.length, 2, 'Should have 2 screen tabs');
+  assert.ok(tabs[0].textContent.includes('Écran #1'));
+  assert.ok(tabs[1].textContent.includes('Écran #2'));
+  assert.ok(tabs[1].classList.contains('active'), 'Latest screen (Screen #2) should be active by default');
+
+  const dlPngText = modal.querySelector('#ai-dl-png-text');
+  assert.ok(dlPngText.textContent.includes('écran #2'));
+
+  // Switch to Screen #1
+  tabs[0].click();
+  assert.ok(tabs[0].classList.contains('active'), 'Tab 1 should become active');
+  assert.ok(dlPngText.textContent.includes('écran #1'), 'Download button text should update to screen #1');
+
+  // Verify batch download button
+  const dlAllBtn = modal.querySelector('#ai-btn-dl-all-png');
+  assert.ok(dlAllBtn, 'Batch download all button must exist in multi-screen session');
+  assert.ok(dlAllBtn.textContent.includes('2 images'));
+
+  // Test downloadAllPNG execution
+  const dlMessagesBefore = sentMessages.filter(m => m.action === 'DOWNLOAD_FILE').length;
+  await window.AnnotatorUI.downloadAllPNG(window.AnnotatorUI.lastExportData.pages);
+  const dlMessagesAfter = sentMessages.filter(m => m.action === 'DOWNLOAD_FILE').length;
+
+  assert.equal(dlMessagesAfter - dlMessagesBefore, 2, 'Should trigger 2 DOWNLOAD_FILE messages');
+  const dlCalls = sentMessages.filter(m => m.action === 'DOWNLOAD_FILE').slice(-2);
+  assert.ok(dlCalls[0].filename.includes('annotation-ecran-1-'), 'First download filename should contain ecran-1');
+  assert.ok(dlCalls[1].filename.includes('annotation-ecran-2-'), 'Second download filename should contain ecran-2');
+
+  window.AnnotatorUI.deactivate();
+});
+
+
 
 
 
