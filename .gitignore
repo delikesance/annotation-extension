@@ -4,3 +4,8 @@ dist/
 .DS_Store
 *.zip
 .env
+.claude/
+.agents/
+agent/
+skills-lock.json
+.temp-chrome-profile/

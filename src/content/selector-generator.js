@@ -1,6 +1,7 @@
 /**
  * DOM Selector & Metadata Extraction Engine
- * Provides deterministic, unique CSS selectors, XPaths, and rich DOM metadata for AI context.
+ * Provides deterministic, unique CSS selectors, XPaths, computed layout/styling CSS,
+ * parent container context, and rich DOM metadata for AI coding context.
  */
 
 function escapeCss(ident) {
@@ -139,6 +140,73 @@ function getXPath(element) {
 }
 
 /**
+ * Extracts key computed CSS styles for an element.
+ */
+function extractComputedStyles(element, win) {
+  if (!element || !win || !win.getComputedStyle) return {};
+
+  try {
+    const cs = win.getComputedStyle(element);
+    if (!cs) return {};
+
+    return {
+      display: cs.display || '',
+      position: cs.position || '',
+      flexDirection: cs.flexDirection || '',
+      alignItems: cs.alignItems || '',
+      justifyContent: cs.justifyContent || '',
+      gap: cs.gap || '',
+      gridTemplateColumns: cs.gridTemplateColumns || '',
+      width: cs.width || '',
+      height: cs.height || '',
+      margin: `${cs.marginTop || '0'} ${cs.marginRight || '0'} ${cs.marginBottom || '0'} ${cs.marginLeft || '0'}`.trim(),
+      padding: `${cs.paddingTop || '0'} ${cs.paddingRight || '0'} ${cs.paddingBottom || '0'} ${cs.paddingLeft || '0'}`.trim(),
+      boxSizing: cs.boxSizing || '',
+      overflow: cs.overflow || '',
+      zIndex: cs.zIndex !== 'auto' ? cs.zIndex : '',
+      color: cs.color || '',
+      backgroundColor: cs.backgroundColor || '',
+      fontSize: cs.fontSize || '',
+      fontWeight: cs.fontWeight || '',
+      lineHeight: cs.lineHeight || '',
+      borderRadius: cs.borderRadius || '',
+      border: cs.border || '',
+      boxShadow: cs.boxShadow !== 'none' ? cs.boxShadow : '',
+      opacity: cs.opacity !== '1' ? cs.opacity : '',
+      visibility: cs.visibility || ''
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+/**
+ * Extracts parent container metadata.
+ */
+function extractParentContext(element, win) {
+  if (!element || !element.parentElement) return null;
+  const parent = element.parentElement;
+  if (parent.tagName.toLowerCase() === 'html') return null;
+
+  let parentDisplay = '';
+  if (win && win.getComputedStyle) {
+    try {
+      parentDisplay = win.getComputedStyle(parent).display || '';
+    } catch (_) {}
+  }
+
+  const pRect = parent.getBoundingClientRect ? parent.getBoundingClientRect() : { width: 0, height: 0 };
+
+  return {
+    tag: parent.tagName.toLowerCase(),
+    id: parent.id || null,
+    classes: Array.from(parent.classList || []),
+    display: parentDisplay,
+    dimensions: `${Math.round(pRect.width)}x${Math.round(pRect.height)}`
+  };
+}
+
+/**
  * Extracts comprehensive DOM metadata for an annotated element.
  */
 function getElementMetadata(element, index, comment) {
@@ -165,7 +233,7 @@ function getElementMetadata(element, index, comment) {
   const attributes = {};
   const interestingAttrs = [
     'id', 'name', 'type', 'placeholder', 'aria-label', 'aria-describedby',
-    'role', 'href', 'src', 'alt', 'title', 'value', 'data-testid', 'data-cy'
+    'role', 'href', 'src', 'alt', 'title', 'value', 'data-testid', 'data-cy', 'disabled'
   ];
 
   if (element.getAttribute) {
@@ -185,6 +253,9 @@ function getElementMetadata(element, index, comment) {
     cur = cur.parentElement;
   }
 
+  const computedStyles = extractComputedStyles(element, win);
+  const parentContext = extractParentContext(element, win);
+
   return {
     index: index,
     comment: comment || '',
@@ -198,6 +269,8 @@ function getElementMetadata(element, index, comment) {
       text: textPreview,
       textTruncated: textTruncated,
       attributes: attributes,
+      computedStyles: computedStyles,
+      parent: parentContext,
       rect: {
         x: Math.round(rect.x),
         y: Math.round(rect.y),
@@ -223,6 +296,8 @@ const SelectorGenerator = {
   escapeCss,
   getUniqueSelector,
   getXPath,
+  extractComputedStyles,
+  extractParentContext,
   getElementMetadata
 };
 

@@ -1,7 +1,40 @@
 /**
  * Service Worker (Background script - Manifest V3)
- * Handles extension activation, screenshot capture via Chrome API, and file downloads.
+ * Handles extension activation, screenshot capture via Chrome API,
+ * zero-friction clipboard proxy via Offscreen API, and file downloads.
  */
+
+let creatingOffscreenDocument = null;
+
+async function setupOffscreenDocument(path) {
+  if (await hasOffscreenDocument(path)) return;
+  if (creatingOffscreenDocument) {
+    await creatingOffscreenDocument;
+  } else {
+    creatingOffscreenDocument = chrome.offscreen.createDocument({
+      url: path,
+      reasons: [chrome.offscreen.Reason.CLIPBOARD],
+      justification: 'Zero-friction copy of annotated screenshots and AI prompts to system clipboard'
+    });
+    await creatingOffscreenDocument;
+    creatingOffscreenDocument = null;
+  }
+}
+
+async function hasOffscreenDocument(path) {
+  if (chrome.runtime.getContexts) {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: [chrome.runtime.getURL(path)]
+    });
+    return Boolean(contexts && contexts.length > 0);
+  }
+  if (typeof clients !== 'undefined' && clients.matchAll) {
+    const matchedClients = await clients.matchAll();
+    return matchedClients.some(c => c.url === chrome.runtime.getURL(path));
+  }
+  return false;
+}
 
 // Toggle annotator when extension icon is clicked
 chrome.action.onClicked.addListener(async (tab) => {
@@ -30,6 +63,7 @@ chrome.action.onClicked.addListener(async (tab) => {
         files: [
           'content/selector-generator.js',
           'content/dom-freeze.js',
+          'content/jev-optimizer.js',
           'content/ui-manager.js',
           'content/content-script.js'
         ]
@@ -60,6 +94,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: false, error: error.message });
       });
     return true; // Keep message channel open for async response
+  }
+
+  if (message.action === 'COPY_TO_CLIPBOARD') {
+    (async () => {
+      try {
+        await setupOffscreenDocument('offscreen/offscreen.html');
+        const res = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: message.type === 'image' ? 'OFFSCREEN_COPY_IMAGE' : 'OFFSCREEN_COPY_TEXT',
+          dataUrl: message.dataUrl,
+          text: message.text
+        });
+        sendResponse(res || { success: true });
+      } catch (err) {
+        console.error('[AI Web Annotator] Offscreen clipboard error:', err);
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
   }
 
   if (message.action === 'DOWNLOAD_FILE') {

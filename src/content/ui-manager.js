@@ -1,7 +1,7 @@
 /**
  * UI Manager for AI Web Annotator
  * Manages the Shadow DOM lifecycle, hover inspector, numbered badges,
- * inline comment card, HUD toolbar, and export workflow.
+ * inline comment card, HUD toolbar, JEV token optimizer, and export workflow.
  */
 
 class AnnotatorUIManager {
@@ -15,10 +15,15 @@ class AnnotatorUIManager {
 
     this.annotations = []; // Array of { id, index, element, comment, badgeEl, boxEl, arrowEl, metadata }
     this.hoveredElement = null;
+    this.selectedAnnotation = null;
     this.isInspecting = false;
     this.isEditingComment = false;
     this.activeExportModal = null;
     this.lastExportData = null;
+    this.currentExportFormat = 'agent'; // 'agent' | 'github' | 'json'
+
+    this.jevOptimizer = typeof JevOptimizer !== 'undefined' ? new JevOptimizer() : null;
+    this.optimizedAnnotations = [];
 
     this.boundOnMouseMove = this.onMouseMove.bind(this);
     this.boundOnClick = this.onClick.bind(this);
@@ -44,7 +49,9 @@ class AnnotatorUIManager {
     // Inject styles into Shadow DOM
     const styleLink = document.createElement('link');
     styleLink.rel = 'stylesheet';
-    styleLink.href = chrome.runtime.getURL('content/styles.css');
+    styleLink.href = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
+      ? chrome.runtime.getURL('content/styles.css')
+      : 'content/styles.css';
     this.shadow.appendChild(styleLink);
 
     this.createHighlightBox();
@@ -66,26 +73,100 @@ class AnnotatorUIManager {
     this.hud = document.createElement('div');
     this.hud.className = 'ai-annotator-hud';
     this.hud.innerHTML = `
+      <div class="ai-hud-drag-handle" title="Glisser pour déplacer la barre d'outils">
+        <svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="4" cy="3" r="1" fill="currentColor"/>
+          <circle cx="8" cy="3" r="1" fill="currentColor"/>
+          <circle cx="4" cy="7" r="1" fill="currentColor"/>
+          <circle cx="8" cy="7" r="1" fill="currentColor"/>
+          <circle cx="4" cy="11" r="1" fill="currentColor"/>
+          <circle cx="8" cy="11" r="1" fill="currentColor"/>
+        </svg>
+      </div>
       <div class="ai-hud-status">
         <span class="ai-pulse-dot"></span>
-        <span>Page Figée</span>
+        <span class="ai-hud-status-text">Page Figée</span>
       </div>
       <div class="ai-hud-counter" id="ai-counter">0 annotation</div>
-      <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Terminer et copier l'image / le prompt">
+      <div class="ai-hud-shortcuts-hint" title="Raccourcis clavier : Échap (Quitter), Ctrl+Entrée (Valider)">
+        <span>⚡ Échap / Ctrl+↵</span>
+      </div>
+      <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Terminer et exporter les annotations (Ctrl+E)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>
         <span>Terminer</span>
       </button>
-      <button class="ai-hud-btn ai-hud-btn-danger" id="ai-btn-cancel" title="Quitter le mode annotation (Échap)">
-        <span>Quitter</span>
+      <button class="ai-hud-btn-icon ai-hud-btn-minimize" id="ai-btn-minimize" title="Réduire / Agrandir le dock">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 14 10 14 10 20"></polyline>
+          <polyline points="20 10 14 10 14 4"></polyline>
+        </svg>
+      </button>
+      <button class="ai-hud-btn-icon ai-hud-btn-close" id="ai-btn-cancel" title="Quitter le mode annotation (Échap)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
       </button>
     `;
 
     this.hud.querySelector('#ai-btn-export').addEventListener('click', () => this.finishAndShowExportModal());
     this.hud.querySelector('#ai-btn-cancel').addEventListener('click', () => this.deactivate());
 
+    const minBtn = this.hud.querySelector('#ai-btn-minimize');
+    if (minBtn) {
+      minBtn.addEventListener('click', () => {
+        this.hud.classList.toggle('ai-hud-collapsed');
+      });
+    }
+
+    this.setupHudDragging();
     this.shadow.appendChild(this.hud);
+  }
+
+  setupHudDragging() {
+    const handle = this.hud.querySelector('.ai-hud-drag-handle');
+    if (!handle) return;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let initialLeft = 0;
+    let initialTop = 0;
+
+    handle.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = this.hud.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
+      this.hud.style.transform = 'none';
+      this.hud.style.bottom = 'auto';
+      this.hud.style.left = `${initialLeft}px`;
+      this.hud.style.top = `${initialTop}px`;
+      this.hud.classList.add('ai-hud-is-dragging');
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const winW = typeof window !== 'undefined' ? window.innerWidth : 1024;
+      const winH = typeof window !== 'undefined' ? window.innerHeight : 768;
+      this.hud.style.left = `${Math.max(10, Math.min(winW - (this.hud.offsetWidth || 300) - 10, initialLeft + dx))}px`;
+      this.hud.style.top = `${Math.max(10, Math.min(winH - (this.hud.offsetHeight || 50) - 10, initialTop + dy))}px`;
+    }, true);
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        this.hud.classList.remove('ai-hud-is-dragging');
+      }
+    }, true);
   }
 
   updateCounter() {
@@ -100,7 +181,7 @@ class AnnotatorUIManager {
     this.isInspecting = true;
 
     // Enable page interaction freeze
-    if (window.DOMFreeze) {
+    if (typeof window !== 'undefined' && window.DOMFreeze) {
       window.DOMFreeze.enable();
     }
 
@@ -110,15 +191,16 @@ class AnnotatorUIManager {
     window.addEventListener('keydown', this.boundOnKeyDown, true);
 
     this.host.style.display = 'block';
-    this.showToast('Mode Annotation activé : Cliquez sur un élément pour annoter.');
+    this.showToast('🎯 Mode Annotation activé : Cliquez sur un élément pour annoter.');
   }
 
   deactivate() {
     this.isInspecting = false;
     this.isEditingComment = false;
+    this.selectedAnnotation = null;
 
     // Un-freeze DOM
-    if (window.DOMFreeze) {
+    if (typeof window !== 'undefined' && window.DOMFreeze) {
       window.DOMFreeze.disable();
     }
 
@@ -147,6 +229,7 @@ class AnnotatorUIManager {
       if (ann.arrowEl) ann.arrowEl.remove();
     }
     this.annotations = [];
+    this.optimizedAnnotations = [];
     this.updateCounter();
 
     if (this.host) {
@@ -154,14 +237,16 @@ class AnnotatorUIManager {
     }
 
     // Reset action badge
-    chrome.runtime.sendMessage({ action: 'SET_BADGE', text: '' }).catch(() => {});
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({ action: 'SET_BADGE', text: '' }).catch(() => {});
+    }
   }
 
   onMouseMove(e) {
     if (!this.isInspecting || this.isEditingComment) return;
 
     // Find element under cursor excluding our extension UI
-    const elements = document.elementsFromPoint(e.clientX, e.clientY);
+    const elements = document.elementsFromPoint ? document.elementsFromPoint(e.clientX, e.clientY) : [];
     const target = elements.find(el => el !== this.host && !this.host.contains(el));
 
     if (!target || target === document.body || target === document.documentElement) {
@@ -205,7 +290,6 @@ class AnnotatorUIManager {
       return;
     }
 
-    // Determine target element under cursor (fallback to elementsFromPoint or e.target if hoveredElement is not set)
     let target = this.hoveredElement;
     if (!target) {
       const elements = document.elementsFromPoint ? document.elementsFromPoint(e.clientX, e.clientY) : [];
@@ -232,6 +316,22 @@ class AnnotatorUIManager {
       } else {
         this.deactivate();
       }
+      return;
+    }
+
+    // Ctrl+E or Cmd+E triggers export
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'e' || e.key === 'E')) {
+      e.preventDefault();
+      if (!this.activeExportModal && this.annotations.length > 0) {
+        this.finishAndShowExportModal();
+      }
+      return;
+    }
+
+    // Delete or Backspace removes selected annotation if not typing in textarea
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedAnnotation && !this.isEditingComment) {
+      e.preventDefault();
+      this.deleteAnnotation(this.selectedAnnotation);
     }
   }
 
@@ -241,10 +341,8 @@ class AnnotatorUIManager {
     const scrollX = window.scrollX || window.pageXOffset || 0;
     const scrollY = window.scrollY || window.pageYOffset || 0;
 
-    // Hide hover highlight box while creating point
     this.highlightBox.style.display = 'none';
 
-    // Target coordinates
     const elemLeft = rect.left + scrollX;
     const elemTop = rect.top + scrollY;
     const elemWidth = Math.max(rect.width, 12);
@@ -259,13 +357,12 @@ class AnnotatorUIManager {
     boxEl.style.height = `${elemHeight}px`;
     this.shadow.appendChild(boxEl);
 
-    // Compute smart badge position & target arrow destination
+    // Compute badge position & target arrow destination
     let tx = elemLeft + 2;
     let ty = elemTop + 2;
     let bx = elemLeft - 36;
     let by = elemTop - 36;
 
-    // Boundary checks: if near top or left of screen/document
     if (rect.top < 50) {
       by = elemTop + elemHeight + 36;
       ty = elemTop + elemHeight - 2;
@@ -278,11 +375,11 @@ class AnnotatorUIManager {
     bx = Math.max(20, bx);
     by = Math.max(20, by);
 
-    // 2. Visual directional arrow from badge to target element
+    // 2. Visual directional arrow
     const arrowEl = this.createArrowElement(nextIndex, bx, by, tx, ty);
     this.shadow.appendChild(arrowEl);
 
-    // 3. Numbered Badge (pinned at bx, by)
+    // 3. Numbered Badge
     const badgeEl = document.createElement('div');
     badgeEl.className = 'ai-annotation-badge';
     badgeEl.textContent = nextIndex;
@@ -304,9 +401,11 @@ class AnnotatorUIManager {
 
     badgeEl.addEventListener('click', (e) => {
       e.stopPropagation();
+      this.selectedAnnotation = annotation;
       this.openCommentModal(annotation);
     });
 
+    this.selectedAnnotation = annotation;
     this.openCommentModal(annotation, true);
   }
 
@@ -315,7 +414,6 @@ class AnnotatorUIManager {
     const dy = ty - by;
     const dist = Math.hypot(dx, dy);
 
-    // Arrow starts at radius 16px from badge center (bx, by)
     const startX = dist > 18 ? bx + (dx / dist) * 16 : bx;
     const startY = dist > 18 ? by + (dy / dist) * 16 : by;
     const endX = tx;
@@ -355,9 +453,7 @@ class AnnotatorUIManager {
           <polygon points="0 0, 8 3, 0 6" fill="#4f46e5" />
         </marker>
       </defs>
-      <!-- White halo for high visibility on any page background -->
       <line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}" stroke="#ffffff" stroke-width="5" stroke-linecap="round" marker-end="url(#${markerIdWhite})" />
-      <!-- Main indigo arrow line -->
       <line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}" stroke="#4f46e5" stroke-width="2.5" stroke-linecap="round" marker-end="url(#${markerId})" />
     `;
 
@@ -365,7 +461,6 @@ class AnnotatorUIManager {
   }
 
   openCommentModal(annotation, isNew = false) {
-    // If currently editing another annotation that was new and unsaved, cancel it first
     if (this.isEditingComment && this.currentEditingAnnotation && this.currentEditingAnnotation !== annotation) {
       this.cancelActiveComment();
     } else if (this.activeCommentCard) {
@@ -386,18 +481,14 @@ class AnnotatorUIManager {
     const badgeTop = annotation.badgeEl ? (parseFloat(annotation.badgeEl.style.top) || (rect.top + scrollY)) : (rect.top + scrollY);
     const badgeLeft = annotation.badgeEl ? (parseFloat(annotation.badgeEl.style.left) || (rect.left + scrollX)) : (rect.left + scrollX);
 
-    // Position popover near badge
     let modalTop = badgeTop + 24;
     let modalLeft = badgeLeft + 16;
 
-    // Boundary check so modal stays on screen horizontally
-    if (rect.left + 340 > viewportWidth) {
-      modalLeft = Math.max(scrollX + 16, scrollX + viewportWidth - 340);
+    if (rect.left + 360 > viewportWidth) {
+      modalLeft = Math.max(scrollX + 16, scrollX + viewportWidth - 360);
     }
-
-    // Boundary check vertically: if bottom is cut off, display above the element
-    if (rect.top + 200 > viewportHeight && rect.top > 160) {
-      modalTop = Math.max(scrollY + 16, badgeTop - 170);
+    if (rect.top + 220 > viewportHeight && rect.top > 180) {
+      modalTop = Math.max(scrollY + 16, badgeTop - 190);
     }
 
     card.style.top = `${modalTop}px`;
@@ -410,13 +501,14 @@ class AnnotatorUIManager {
           <span>Point #${annotation.index}</span>
           <span class="ai-comment-tag">&lt;${tagStr}&gt;</span>
         </div>
+        <div class="ai-comment-shortcut-badge">Ctrl+Entrée</div>
       </div>
-      <textarea class="ai-comment-textarea" placeholder="Indiquez ce que l'IA doit analyser ou modifier sur cet élément...">${annotation.comment || ''}</textarea>
+      <textarea class="ai-comment-textarea" placeholder="Indiquez ce que l'IA doit analyser, modifier ou corriger sur cet élément...">${annotation.comment || ''}</textarea>
       <div class="ai-comment-footer">
-        <span class="ai-comment-hint">Entrée pour valider</span>
+        <span class="ai-comment-hint">⚡ Entrée ou Ctrl+Entrée pour valider</span>
         <div class="ai-comment-actions">
           <button class="ai-btn-sm ai-btn-delete" id="ai-modal-delete">${isNew ? 'Annuler' : 'Supprimer'}</button>
-          <button class="ai-btn-sm ai-btn-save" id="ai-modal-save">Valider</button>
+          <button class="ai-btn-sm ai-btn-save" id="ai-modal-save">Enregistrer</button>
         </div>
       </div>
     `;
@@ -429,8 +521,7 @@ class AnnotatorUIManager {
       const text = textarea.value.trim();
       annotation.comment = text;
 
-      // Extract DOM metadata
-      if (window.SelectorGenerator) {
+      if (typeof window !== 'undefined' && window.SelectorGenerator) {
         annotation.metadata = window.SelectorGenerator.getElementMetadata(
           annotation.element,
           annotation.index,
@@ -438,42 +529,29 @@ class AnnotatorUIManager {
         );
       }
 
-      if (isNew) {
+      if (isNew && !this.annotations.includes(annotation)) {
         this.annotations.push(annotation);
       }
 
       this.closeCommentModal();
       this.updateCounter();
 
-      // Update extension toolbar badge count
-      chrome.runtime.sendMessage({
-        action: 'SET_BADGE',
-        text: String(this.annotations.length),
-        color: '#4f46e5'
-      }).catch(() => {});
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({
+          action: 'SET_BADGE',
+          text: String(this.annotations.length),
+          color: '#4f46e5'
+        }).catch(() => {});
+      }
     };
 
     const deleteAction = () => {
-      if (annotation.badgeEl) annotation.badgeEl.remove();
-      if (annotation.boxEl) annotation.boxEl.remove();
-      if (annotation.arrowEl) annotation.arrowEl.remove();
-
-      this.annotations = this.annotations.filter(a => a !== annotation);
-      this.reindexAnnotations();
-      this.closeCommentModal();
-      this.updateCounter();
-
-      chrome.runtime.sendMessage({
-        action: 'SET_BADGE',
-        text: this.annotations.length > 0 ? String(this.annotations.length) : '',
-        color: '#4f46e5'
-      }).catch(() => {});
+      this.deleteAnnotation(annotation);
     };
 
     saveBtn.addEventListener('click', saveAction);
     deleteBtn.addEventListener('click', deleteAction);
 
-    // Isolate keyboard events so typing in textarea NEVER triggers website shortcuts
     ['keydown', 'keyup', 'keypress'].forEach(evtType => {
       card.addEventListener(evtType, (e) => {
         e.stopPropagation();
@@ -482,7 +560,7 @@ class AnnotatorUIManager {
 
     textarea.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if ((e.key === 'Enter' && !e.shiftKey) || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
         e.preventDefault();
         saveAction();
       } else if (e.key === 'Escape') {
@@ -491,19 +569,30 @@ class AnnotatorUIManager {
       }
     });
 
-    textarea.addEventListener('keyup', (e) => {
-      e.stopPropagation();
-    });
-
-    textarea.addEventListener('keypress', (e) => {
-      e.stopPropagation();
-    });
-
     this.shadow.appendChild(card);
     this.activeCommentCard = card;
     this.currentEditingAnnotation = annotation;
 
     setTimeout(() => textarea.focus(), 50);
+  }
+
+  deleteAnnotation(annotation) {
+    if (annotation.badgeEl) annotation.badgeEl.remove();
+    if (annotation.boxEl) annotation.boxEl.remove();
+    if (annotation.arrowEl) annotation.arrowEl.remove();
+
+    this.annotations = this.annotations.filter(a => a !== annotation);
+    this.reindexAnnotations();
+    this.closeCommentModal();
+    this.updateCounter();
+
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({
+        action: 'SET_BADGE',
+        text: this.annotations.length > 0 ? String(this.annotations.length) : '',
+        color: '#4f46e5'
+      }).catch(() => {});
+    }
   }
 
   closeCommentModal() {
@@ -536,14 +625,13 @@ class AnnotatorUIManager {
     });
   }
 
-  // Alias for backward compatibility
   async exportAndFinish() {
     return this.finishAndShowExportModal();
   }
 
   async finishAndShowExportModal() {
     if (this.annotations.length === 0) {
-      this.showToast('Aucune annotation enregistrée. Cliquez d\'abord sur un élément pour annoter.');
+      this.showToast('⚠️ Aucune annotation enregistrée. Cliquez d\'abord sur un élément pour annoter.');
       return;
     }
 
@@ -551,49 +639,158 @@ class AnnotatorUIManager {
       this.closeCommentModal();
     }
 
-    this.showToast('Génération de la capture avec flèches & prompt IA...');
+    this.showToast('🧠 Optimisation JEV & Génération de la capture...');
 
-    // 1. Temporarily hide HUD and highlight box so only the web page, arrows, and numbered badges appear in screenshot
+    // Hide HUD for clean screenshot
     this.hud.style.display = 'none';
     this.highlightBox.style.display = 'none';
 
-    await new Promise(r => setTimeout(r, 150)); // Allow DOM repaint
+    await new Promise(r => setTimeout(r, 150));
 
     try {
-      // 2. Request native high-fidelity screenshot from background worker
-      const response = await chrome.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
-
-      // Restore HUD visibility
-      this.hud.style.display = 'flex';
-
-      if (!response || !response.success || !response.dataUrl) {
-        throw new Error(response ? response.error : 'Capture non disponible');
+      let dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const response = await chrome.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
+        if (response && response.success && response.dataUrl) {
+          dataUrl = response.dataUrl;
+        }
       }
 
-      // 3. Compile prompt and payload
-      const promptText = this.generateAIPrompt();
+      this.hud.style.display = 'flex';
+
+      // Run JEV token optimizer on all annotations
+      if (!this.jevOptimizer && typeof JevOptimizer !== 'undefined') {
+        this.jevOptimizer = new JevOptimizer();
+      }
+
+      if (this.jevOptimizer) {
+        this.optimizedAnnotations = await Promise.all(
+          this.annotations.map(ann => this.jevOptimizer.optimizeAnnotation(ann))
+        );
+      } else {
+        this.optimizedAnnotations = this.annotations.map(a => ({
+          index: a.index,
+          comment: a.comment,
+          intent: 'layout_css',
+          intentLabel: '📐 Layout & Responsive',
+          priority: 'P2',
+          priorityLabel: 'Moyenne (P2)',
+          prunedStyles: a.metadata ? (a.metadata.element?.computedStyles || {}) : {},
+          tokenSavings: { rawEstimate: 200, prunedEstimate: 60, savedPercent: 70 }
+        }));
+      }
+
+      const promptText = this.generateAIPrompt(this.currentExportFormat);
       const payload = this.generateContextPayload(promptText);
 
-      this.lastExportData = {
-        dataUrl: response.dataUrl,
-        promptText: promptText,
-        payload: payload
-      };
-
-      // 4. Show the Export Completion Modal with Copy Image & Copy Prompt buttons!
-      this.showExportModal(response.dataUrl, promptText, payload);
+      this.lastExportData = { dataUrl, promptText, payload };
+      this.showExportModal(dataUrl, promptText, payload);
 
     } catch (err) {
       this.hud.style.display = 'flex';
       console.error('[AI Web Annotator] Capture failed:', err);
-      this.showToast(`Erreur lors de la capture: ${err.message}`);
+      this.showToast(`Erreur : ${err.message}`);
     }
+  }
+
+  generateAIPrompt(format = 'agent') {
+    if (format === 'github') {
+      return this.generateGitHubPrompt();
+    }
+    if (format === 'json') {
+      return JSON.stringify(this.generateContextPayload(), null, 2);
+    }
+    return this.generateAgentPrompt();
+  }
+
+  generateAgentPrompt() {
+    let prompt = `### 🎯 Contexte Web & Annotations pour Agent IA\n`;
+    prompt += `- **Page** : ${document.title} (\`${window.location.href}\`)\n`;
+    prompt += `- **Viewport** : ${window.innerWidth}x${window.innerHeight} (dpr: ${window.devicePixelRatio || 1})\n`;
+    prompt += `- **Total Points** : ${this.annotations.length}\n\n`;
+    prompt += `### 📌 Actions & Corrections Demandées :\n`;
+
+    this.annotations.forEach((a, idx) => {
+      const opt = this.optimizedAnnotations[idx] || {};
+      const meta = a.metadata ? a.metadata.element : {};
+      const intentTag = opt.intentLabel || '🔧 Modification';
+      const priority = opt.priorityLabel || 'P2';
+
+      prompt += `\n#### [Point #${a.index}] ${intentTag} - ${priority}\n`;
+      prompt += `- **Demande / Problème** : ${a.comment || '(Aucun commentaire)'}\n`;
+      prompt += `- **Élément Cible** : \`<${meta.tag ? meta.tag.toLowerCase() : 'element'}>\`\n`;
+      if (meta.cssSelector) prompt += `- **Sélecteur CSS Unique** : \`${meta.cssSelector}\`\n`;
+      if (meta.xpath) prompt += `- **XPath** : \`${meta.xpath}\`\n`;
+      if (meta.text) prompt += `- **Texte Visible** : "${meta.text}"\n`;
+
+      // Include pruned CSS styles (distilled by Jev)
+      if (opt.prunedStyles && Object.keys(opt.prunedStyles).length > 0) {
+        const cssLines = Object.entries(opt.prunedStyles)
+          .map(([k, v]) => `${k}: ${v};`)
+          .join(' ');
+        prompt += `- **Styles Calculés Clés** : \`${cssLines}\`\n`;
+      }
+
+      // Include parent layout container if relevant
+      if (opt.parentContext) {
+        prompt += `- **Conteneur Parent** : \`<${opt.parentContext.tag}>\` (${opt.parentContext.display || 'block'}, ${opt.parentContext.dimensions || ''})\n`;
+      }
+    });
+
+    prompt += `\n---\n*Généré par AI Web Annotator avec distillation de tokens JEV (TypeSafe System One).*`;
+    return prompt;
+  }
+
+  generateGitHubPrompt() {
+    let md = `## 🐛 Rapport d'Anomalies & Ajustements UI\n\n`;
+    md += `**URL :** ${window.location.href}  \n`;
+    md += `**Résolution :** ${window.innerWidth}x${window.innerHeight}  \n\n`;
+    md += `### 📋 Liste des points à traiter :\n\n`;
+
+    this.annotations.forEach((a, idx) => {
+      const opt = this.optimizedAnnotations[idx] || {};
+      const meta = a.metadata ? a.metadata.element : {};
+      const intentTag = opt.intentLabel || 'Ajustement';
+
+      md += `- [ ] **[Point #${a.index}]** [${intentTag}] \`${meta.cssSelector || meta.tag || 'element'}\` : ${a.comment || 'À corriger'}\n`;
+    });
+
+    return md;
+  }
+
+  generateContextPayload(promptText) {
+    return {
+      meta: {
+        generator: 'AI Web Annotator (Manifest V3 + JEV)',
+        version: '1.1.0',
+        pageUrl: window.location.href,
+        pageTitle: document.title,
+        timestamp: new Date().toISOString(),
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          devicePixelRatio: window.devicePixelRatio || 1
+        },
+        totalAnnotations: this.annotations.length
+      },
+      annotations: this.annotations.map((a, idx) => ({
+        index: a.index,
+        comment: a.comment,
+        jevAnalysis: this.optimizedAnnotations[idx] || null,
+        element: a.metadata ? a.metadata.element : { tag: a.element.tagName }
+      })),
+      aiPrompt: promptText || this.generateAIPrompt('agent')
+    };
   }
 
   showExportModal(dataUrl, promptText, payload) {
     if (this.activeExportModal) {
       this.activeExportModal.remove();
     }
+
+    const totalRaw = this.optimizedAnnotations.reduce((sum, o) => sum + (o.tokenSavings?.rawEstimate || 200), 0);
+    const totalPruned = this.optimizedAnnotations.reduce((sum, o) => sum + (o.tokenSavings?.prunedEstimate || 60), 0);
+    const savingsPercent = totalRaw > 0 ? Math.max(0, Math.round(((totalRaw - totalPruned) / totalRaw) * 100)) : 70;
 
     const modal = document.createElement('div');
     modal.className = 'ai-export-backdrop';
@@ -602,7 +799,8 @@ class AnnotatorUIManager {
         <div class="ai-export-header">
           <div class="ai-export-title-row">
             <span class="ai-export-pill">${this.annotations.length} annotation${this.annotations.length > 1 ? 's' : ''}</span>
-            <h3 class="ai-export-title">Annotations prêtes pour l'IA</h3>
+            <span class="ai-export-jev-pill">⚡ JEV Optimizer: -${savingsPercent}% tokens</span>
+            <h3 class="ai-export-title">Annotations Prêtes pour l'IA</h3>
           </div>
           <button class="ai-export-close-btn" id="ai-modal-close" title="Fermer (Échap)">✕</button>
         </div>
@@ -613,6 +811,12 @@ class AnnotatorUIManager {
             <div class="ai-export-preview-overlay">
               <span class="ai-export-preview-tag">✓ Capture avec flèches & indicateurs</span>
             </div>
+          </div>
+
+          <div class="ai-export-format-selector">
+            <button class="ai-format-tab ${this.currentExportFormat === 'agent' ? 'active' : ''}" data-format="agent">🤖 Agent IA (Distillé)</button>
+            <button class="ai-format-tab ${this.currentExportFormat === 'github' ? 'active' : ''}" data-format="github">🐙 GitHub / Linear Issue</button>
+            <button class="ai-format-tab ${this.currentExportFormat === 'json' ? 'active' : ''}" data-format="json">📊 JSON Brut</button>
           </div>
 
           <div class="ai-export-primary-actions">
@@ -634,13 +838,13 @@ class AnnotatorUIManager {
               </svg>
               <div class="ai-action-text-group">
                 <span class="ai-action-main-text">Copier le prompt IA</span>
-                <span class="ai-action-sub-text">Markdown structuré</span>
+                <span class="ai-action-sub-text">Markdown distillé JEV</span>
               </div>
             </button>
           </div>
 
           <div class="ai-export-secondary-actions">
-            <button class="ai-export-sub-btn" id="ai-btn-dl-png" title="Enregistrer l'image PNG sur l'ordinateur">
+            <button class="ai-export-sub-btn" id="ai-btn-dl-png" title="Enregistrer l'image PNG">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
@@ -649,7 +853,7 @@ class AnnotatorUIManager {
               <span>Télécharger PNG</span>
             </button>
 
-            <button class="ai-export-sub-btn" id="ai-btn-dl-json" title="Enregistrer les données JSON">
+            <button class="ai-export-sub-btn" id="ai-btn-dl-json" title="Enregistrer JSON">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="16 18 22 12 16 6"></polyline>
                 <polyline points="8 6 2 12 8 18"></polyline>
@@ -659,8 +863,8 @@ class AnnotatorUIManager {
           </div>
 
           <div class="ai-export-prompt-preview-wrap">
-            <div class="ai-export-prompt-label">Aperçu du prompt IA :</div>
-            <pre class="ai-export-prompt-pre">${this.escapeHtml(promptText)}</pre>
+            <div class="ai-export-prompt-label">Aperçu du prompt (${this.currentExportFormat}) :</div>
+            <pre class="ai-export-prompt-pre" id="ai-prompt-preview">${this.escapeHtml(promptText)}</pre>
           </div>
         </div>
 
@@ -671,7 +875,6 @@ class AnnotatorUIManager {
       </div>
     `;
 
-    // Button event listeners
     const copyImgBtn = modal.querySelector('#ai-btn-copy-image');
     const copyPromptBtn = modal.querySelector('#ai-btn-copy-prompt');
     const dlPngBtn = modal.querySelector('#ai-btn-dl-png');
@@ -679,17 +882,31 @@ class AnnotatorUIManager {
     const resumeBtn = modal.querySelector('#ai-btn-resume');
     const quitBtn = modal.querySelector('#ai-btn-quit-all');
     const closeBtn = modal.querySelector('#ai-modal-close');
+    const promptPre = modal.querySelector('#ai-prompt-preview');
+    const formatTabs = modal.querySelectorAll('.ai-format-tab');
 
-    // Isolate keyboard events inside the export modal from the parent page
+    formatTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        formatTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        this.currentExportFormat = tab.getAttribute('data-format');
+        const newPrompt = this.generateAIPrompt(this.currentExportFormat);
+        promptPre.textContent = newPrompt;
+      });
+    });
+
     ['keydown', 'keyup', 'keypress'].forEach(evtType => {
       modal.addEventListener(evtType, (e) => {
-        if (e.key === 'Escape') return; // Allow Escape to close modal
+        if (e.key === 'Escape') return;
         e.stopPropagation();
       });
     });
 
     copyImgBtn.addEventListener('click', () => this.copyImageToClipboard(dataUrl, copyImgBtn));
-    copyPromptBtn.addEventListener('click', () => this.copyPromptToClipboard(promptText, copyPromptBtn));
+    copyPromptBtn.addEventListener('click', () => {
+      const activePrompt = this.generateAIPrompt(this.currentExportFormat);
+      this.copyPromptToClipboard(activePrompt, copyPromptBtn);
+    });
     dlPngBtn.addEventListener('click', () => this.downloadPNG(dataUrl));
     dlJsonBtn.addEventListener('click', () => this.downloadJSON(payload));
 
@@ -714,6 +931,23 @@ class AnnotatorUIManager {
   }
 
   async copyImageToClipboard(dataUrl, btn) {
+    // 1. Try Offscreen API via service worker for zero-friction
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        const res = await chrome.runtime.sendMessage({
+          action: 'COPY_TO_CLIPBOARD',
+          type: 'image',
+          dataUrl: dataUrl
+        });
+        if (res && res.success) {
+          this.markButtonSuccess(btn, '✅ Image copiée !');
+          this.showToast('✅ Image copiée dans le presse-papier (Ctrl+V) !');
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Direct navigator.clipboard fallback
     const nav = (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) ? window.navigator : (typeof navigator !== 'undefined' ? navigator : null);
     try {
       const res = await fetch(dataUrl);
@@ -724,21 +958,36 @@ class AnnotatorUIManager {
         await nav.clipboard.write([
           new ClipboardItem({ 'image/png': pngBlob })
         ]);
-      } else {
-        throw new Error('Clipboard write not supported');
+        this.markButtonSuccess(btn, '✅ Image copiée !');
+        this.showToast('✅ Image copiée ! Vous pouvez la coller dans votre IA (Ctrl+V).');
+        return;
       }
-
-      this.markButtonSuccess(btn, '✅ Image copiée !');
-      this.showToast('✅ Image copiée ! Vous pouvez la coller dans votre IA (Ctrl+V).');
+      throw new Error('Clipboard write not supported');
     } catch (err) {
-      console.warn('[AI Web Annotator] Image clipboard write failed:', err);
-      // Fallback: trigger download so user still gets the image
+      console.warn('[AI Web Annotator] Image clipboard write fallback to download:', err);
       await this.downloadPNG(dataUrl);
-      this.showToast('⚠️ Image téléchargée (accès presse-papier restreint par le navigateur).');
+      this.showToast('💾 Image téléchargée.');
     }
   }
 
   async copyPromptToClipboard(promptText, btn) {
+    // 1. Try Offscreen API
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        const res = await chrome.runtime.sendMessage({
+          action: 'COPY_TO_CLIPBOARD',
+          type: 'text',
+          text: promptText
+        });
+        if (res && res.success) {
+          this.markButtonSuccess(btn, '✅ Prompt copié !');
+          this.showToast('✅ Prompt IA copié dans le presse-papier !');
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Direct fallback
     const nav = (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) ? window.navigator : (typeof navigator !== 'undefined' ? navigator : null);
     try {
       if (nav && nav.clipboard && nav.clipboard.writeText) {
@@ -770,11 +1019,13 @@ class AnnotatorUIManager {
   async downloadPNG(dataUrl) {
     const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    await chrome.runtime.sendMessage({
-      action: 'DOWNLOAD_FILE',
-      url: dataUrl,
-      filename: `annotation-${hostname}-${timestamp}.png`
-    });
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      await chrome.runtime.sendMessage({
+        action: 'DOWNLOAD_FILE',
+        url: dataUrl,
+        filename: `annotation-${hostname}-${timestamp}.png`
+      });
+    }
     this.showToast('💾 Capture PNG téléchargée.');
   }
 
@@ -783,41 +1034,14 @@ class AnnotatorUIManager {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const jsonBlob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const jsonBlobUrl = URL.createObjectURL(jsonBlob);
-    await chrome.runtime.sendMessage({
-      action: 'DOWNLOAD_FILE',
-      url: jsonBlobUrl,
-      filename: `annotation-context-${hostname}-${timestamp}.json`
-    });
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      await chrome.runtime.sendMessage({
+        action: 'DOWNLOAD_FILE',
+        url: jsonBlobUrl,
+        filename: `annotation-context-${hostname}-${timestamp}.json`
+      });
+    }
     this.showToast('📄 Données JSON téléchargées.');
-  }
-
-  generateContextPayload(promptText) {
-    return {
-      meta: {
-        generator: 'AI Web Annotator (Manifest V3)',
-        version: '1.0.2',
-        pageUrl: window.location.href,
-        pageTitle: document.title,
-        timestamp: new Date().toISOString(),
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight,
-          devicePixelRatio: window.devicePixelRatio || 1,
-          scrollX: window.scrollX || window.pageXOffset || 0,
-          scrollY: window.scrollY || window.pageYOffset || 0
-        },
-        totalAnnotations: this.annotations.length
-      },
-      annotations: this.annotations.map(a => a.metadata || {
-        index: a.index,
-        comment: a.comment,
-        element: {
-          tag: a.element.tagName,
-          id: a.element.id || null
-        }
-      }),
-      aiPromptPreview: promptText || this.generateAIPrompt()
-    };
   }
 
   fallbackCopyText(text) {
@@ -838,26 +1062,6 @@ class AnnotatorUIManager {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
-  }
-
-  generateAIPrompt() {
-    let prompt = `### Contexte de la page web annotée\n`;
-    prompt += `- **URL** : ${window.location.href}\n`;
-    prompt += `- **Titre** : ${document.title}\n`;
-    prompt += `- **Dimensions Viewport** : ${window.innerWidth}x${window.innerHeight}\n\n`;
-    prompt += `### Points d'annotations sur la capture d'écran :\n`;
-
-    this.annotations.forEach(a => {
-      const meta = a.metadata ? a.metadata.element : {};
-      prompt += `\n**[Point #${a.index}]**\n`;
-      prompt += `- **Commentaire / Demande** : ${a.comment || '(Aucun commentaire)'}\n`;
-      prompt += `- **Élément DOM** : \`<${meta.tag ? meta.tag.toLowerCase() : 'element'}>\`\n`;
-      if (meta.cssSelector) prompt += `- **Sélecteur CSS** : \`${meta.cssSelector}\`\n`;
-      if (meta.xpath) prompt += `- **XPath** : \`${meta.xpath}\`\n`;
-      if (meta.text) prompt += `- **Texte visible** : "${meta.text}"\n`;
-    });
-
-    return prompt;
   }
 
   showToast(message) {

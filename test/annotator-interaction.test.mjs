@@ -40,6 +40,15 @@ function createMockEnvironment() {
         if (msg.action === 'CAPTURE_VISIBLE_TAB') {
           return { success: true, dataUrl: 'data:image/png;base64,mockPngData' };
         }
+        if (msg.action === 'COPY_TO_CLIPBOARD') {
+          if (msg.type === 'text' && window.navigator.clipboard && window.navigator.clipboard.writeText) {
+            await window.navigator.clipboard.writeText(msg.text);
+          }
+          if (msg.type === 'image' && window.navigator.clipboard && window.navigator.clipboard.write) {
+            await window.navigator.clipboard.write([new (global.ClipboardItem || window.ClipboardItem)({ 'image/png': msg.dataUrl })]);
+          }
+          return { success: true };
+        }
         if (msg.action === 'DOWNLOAD_FILE') {
           return { success: true, downloadId: 101 };
         }
@@ -53,10 +62,12 @@ function createMockEnvironment() {
   global.document = window.document;
   global.chrome = window.chrome;
 
+  const JevOptimizer = require('../src/content/jev-optimizer.js');
   const SelectorGenerator = require('../src/content/selector-generator.js');
   const DOMFreezeManager = require('../src/content/dom-freeze.js');
   const AnnotatorUIManager = require('../src/content/ui-manager.js');
 
+  window.JevOptimizer = JevOptimizer;
   window.SelectorGenerator = SelectorGenerator;
   window.DOMFreeze = new DOMFreezeManager();
   window.AnnotatorUI = new AnnotatorUIManager();
