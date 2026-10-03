@@ -326,7 +326,6 @@ summary:focus-visible {
 .ai-hud-collapsed .ai-rail-list,
 .ai-hud-collapsed .ai-hud-btn-next,
 .ai-hud-collapsed .ai-hud-btn-pause,
-.ai-hud-collapsed .ai-hud-btn-update,
 .ai-hud-collapsed .ai-hud-status-text,
 .ai-hud-collapsed .ai-hud-btn-primary .ai-kbd,
 .ai-hud-collapsed .ai-icon-collapse { display: none; }
@@ -347,6 +346,11 @@ summary:focus-visible {
   border: 0;
   padding: 6px 6px 6px 0;
   flex-direction: row;
+}
+.ai-hud-collapsed .ai-hud-btn-update {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
 }
 .ai-hud-collapsed .ai-hud-btn-primary {
   height: 32px;

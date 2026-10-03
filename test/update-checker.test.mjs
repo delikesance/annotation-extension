@@ -77,3 +77,12 @@ test('checkForUpdates - fetches Forgejo release API and detects available update
     global.chrome = originalChrome;
   }
 });
+
+test('manifest grants host permission for the update server (service-worker fetch is CORS-blocked otherwise)', async () => {
+  const fs = await import('node:fs');
+  const manifest = JSON.parse(fs.readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
+  assert.ok(
+    (manifest.host_permissions || []).some(p => p.startsWith('https://git.delikesance.cloud/')),
+    'host_permissions must include the Forgejo host'
+  );
+});
