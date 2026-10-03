@@ -167,7 +167,8 @@ test('Real Browser End-to-End: Next Screen Workflow in Chromium', async () => {
     });
 
     assert.equal(modalUi.tabs.length, 2, 'Must have 2 screen tabs in export modal');
-    assert.ok(modalUi.dlAllBtnText.includes('Tout télécharger (2 images)'), 'Batch download button must display total 2 images');
+    assert.match(modalUi.dlAllBtnText, /Tout télécharger/i, 'Batch download button must exist');
+    assert.ok(modalUi.dlAllBtnText.includes('2'), 'Batch download button must display total 2 images');
     assert.ok(modalUi.dlPngText.includes('écran #2'), 'Initial download button is for active screen 2');
 
     // Click Tab 1

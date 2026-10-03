@@ -109,14 +109,14 @@ class AnnotatorUIManager {
         </svg>
         <span>Écran Suivant</span>
       </button>
-      <div class="ai-hud-shortcuts-hint" title="Raccourcis : P (Pause/Reprendre), N (Écran Suivant), Échap (Quitter), Ctrl+Entrée (Valider)">
-        <span>⚡ P / N / Ctrl+↵</span>
+      <div class="ai-hud-shortcuts-hint" title="Raccourcis : P (Pause/Reprendre), N (Écran Suivant), Ctrl+E (Exporter), Échap (Quitter)">
+        <span>⚡ P / N / Ctrl+E</span>
       </div>
-      <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Terminer et exporter les annotations (Ctrl+E)">
+      <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Exporter les annotations (Ctrl+E)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>
-        <span>Terminer</span>
+        <span>Exporter</span>
       </button>
       <button class="ai-hud-btn-icon ai-hud-btn-minimize" id="ai-btn-minimize" title="Réduire / Agrandir le dock">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1178,15 +1178,34 @@ class AnnotatorUIManager {
     let activePage = pages[selectedPageIndex] || { dataUrl: '', stepIndex: 1 };
     const isMultiScreen = pages.length > 1;
 
+    const formatConfigs = {
+      agent: {
+        name: 'Agent IA',
+        ctaMain: "Copier pour l'Agent IA",
+        ctaSub: 'Prompt structuré avec sélecteurs & contexte'
+      },
+      github: {
+        name: 'GitHub Issue',
+        ctaMain: 'Copier pour GitHub Issue',
+        ctaSub: 'Markdown prêt à coller dans une issue'
+      },
+      json: {
+        name: 'JSON',
+        ctaMain: 'Copier le JSON',
+        ctaSub: 'Données brutes structurées'
+      }
+    };
+
+    const currentConfig = formatConfigs[this.currentExportFormat] || formatConfigs.agent;
+
     const modal = document.createElement('div');
     modal.className = 'ai-export-backdrop';
     modal.innerHTML = `
       <div class="ai-export-dialog">
         <div class="ai-export-header">
-          <div class="ai-export-title-row">
-            <span class="ai-export-pill">${totalPoints} annotation${totalPoints > 1 ? 's' : ''}</span>
-            ${isMultiScreen ? `<span class="ai-export-step-pill">${pages.length} écrans capturés</span>` : ''}
-            <h3 class="ai-export-title">Annotations Prêtes pour l'IA</h3>
+          <div class="ai-export-title-group">
+            <h3 class="ai-export-title">Exporter les annotations</h3>
+            <span class="ai-export-badge">${totalPoints} annotation${totalPoints > 1 ? 's' : ''}${isMultiScreen ? ` • ${pages.length} écrans` : ''}</span>
           </div>
           <button class="ai-export-close-btn" id="ai-modal-close" title="Fermer (Échap)">✕</button>
         </div>
@@ -1198,8 +1217,8 @@ class AnnotatorUIManager {
               <div class="ai-export-screens-tabs" id="ai-screens-tabs">
                 ${pages.map((p, idx) => `
                   <button class="ai-screen-tab ${idx === selectedPageIndex ? 'active' : ''}" data-page-index="${idx}">
-                    <span class="ai-screen-tab-num">Écran #${p.stepIndex}</span>
-                    <span class="ai-screen-tab-count">${(p.annotations || []).length} ann.</span>
+                    <span class="ai-screen-tab-title">Écran ${p.stepIndex}</span>
+                    <span class="ai-screen-tab-badge">${(p.annotations || []).length} ann.</span>
                   </button>
                 `).join('')}
               </div>
@@ -1209,49 +1228,49 @@ class AnnotatorUIManager {
           <div class="ai-export-preview-container">
             <img class="ai-export-thumbnail" id="ai-export-thumb" src="${activePage.dataUrl}" alt="Aperçu capture annotée" />
             <div class="ai-export-preview-overlay">
-              <span class="ai-export-preview-tag" id="ai-preview-tag">✓ Capture ${isMultiScreen ? `Écran #${activePage.stepIndex}` : 'avec flèches & indicateurs'}</span>
+              <span class="ai-export-preview-tag" id="ai-preview-tag">✓ Capture ${isMultiScreen ? `Écran #${activePage.stepIndex}` : 'avec repères'}</span>
             </div>
           </div>
 
           <div class="ai-export-format-selector">
             <button class="ai-format-tab ${this.currentExportFormat === 'agent' ? 'active' : ''}" data-format="agent">🤖 Agent IA</button>
             <button class="ai-format-tab ${this.currentExportFormat === 'github' ? 'active' : ''}" data-format="github">🐙 GitHub Issue</button>
-            <button class="ai-format-tab ${this.currentExportFormat === 'json' ? 'active' : ''}" data-format="json">📊 JSON Brut</button>
+            <button class="ai-format-tab ${this.currentExportFormat === 'json' ? 'active' : ''}" data-format="json">📊 JSON</button>
           </div>
 
-          <div class="ai-export-primary-actions">
-            <button class="ai-export-action-btn ai-btn-copy-image" id="ai-btn-copy-image" title="Copier l'image de l'écran affiché dans le presse-papier">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <!-- Primary Mode-Specific Action (Single Dominant CTA) -->
+          <div class="ai-export-primary-action-wrap">
+            <button class="ai-export-primary-btn" id="ai-btn-primary-action" title="Copier le contenu formaté dans le presse-papier">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+              </svg>
+              <div class="ai-action-text-group">
+                <span class="ai-action-main-text" id="ai-primary-cta-title">${currentConfig.ctaMain}</span>
+                <span class="ai-action-sub-text" id="ai-primary-cta-sub">${currentConfig.ctaSub}</span>
+              </div>
+            </button>
+          </div>
+
+          <!-- Secondary Tools Row -->
+          <div class="ai-export-secondary-tools">
+            <button class="ai-export-sub-btn" id="ai-btn-copy-image" title="Copier l'image de l'écran affiché dans le presse-papier">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                 <circle cx="8.5" cy="8.5" r="1.5"></circle>
                 <polyline points="21 15 16 10 5 21"></polyline>
               </svg>
-              <div class="ai-action-text-group">
-                <span class="ai-action-main-text" id="ai-copy-img-text">${isMultiScreen ? `Copier l'écran #${activePage.stepIndex}` : "Copier l'image"}</span>
-                <span class="ai-action-sub-text">PNG prêt à coller (Ctrl+V)</span>
-              </div>
+              <span id="ai-copy-img-text">${isMultiScreen ? `Copier écran #${activePage.stepIndex}` : "Copier l'image"}</span>
             </button>
 
-            <button class="ai-export-action-btn ai-btn-copy-prompt" id="ai-btn-copy-prompt" title="Copier le prompt IA dans le presse-papier">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-              </svg>
-              <div class="ai-action-text-group">
-                <span class="ai-action-main-text">Copier le prompt IA</span>
-                <span class="ai-action-sub-text">Format structuré</span>
-              </div>
-            </button>
-          </div>
-
-          <div class="ai-export-secondary-actions">
             ${isMultiScreen ? `
-              <button class="ai-export-sub-btn ai-btn-dl-all" id="ai-btn-dl-all-png" title="Télécharger toutes les captures PNG de la session">
+              <button class="ai-export-sub-btn" id="ai-btn-dl-all-png" title="Télécharger toutes les captures PNG de la session">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>📥 Tout télécharger (${pages.length} images)</span>
+                <span>📥 Tout télécharger (${pages.length})</span>
               </button>
             ` : ''}
 
@@ -1273,15 +1292,23 @@ class AnnotatorUIManager {
             </button>
           </div>
 
-          <div class="ai-export-prompt-preview-wrap">
-            <div class="ai-export-prompt-label">Aperçu du prompt (${this.currentExportFormat}) :</div>
+          <!-- Collapsible Prompt Accordion -->
+          <details class="ai-export-prompt-details" id="ai-prompt-details">
+            <summary class="ai-export-prompt-summary">
+              <span class="ai-summary-label">
+                <svg class="ai-summary-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                <span>Voir le prompt généré (<strong id="ai-prompt-format-name">${currentConfig.name}</strong>)</span>
+              </span>
+            </summary>
             <pre class="ai-export-prompt-pre" id="ai-prompt-preview">${this.escapeHtml(promptText)}</pre>
-          </div>
+          </details>
         </div>
 
         <div class="ai-export-footer">
           <button class="ai-btn-footer-link" id="ai-btn-resume">Continuer d'annoter</button>
-          <button class="ai-btn-footer-danger" id="ai-btn-quit-all">Terminer la session</button>
+          <button class="ai-btn-footer-danger" id="ai-btn-quit-all">Quitter et effacer</button>
         </div>
       </div>
     `;
@@ -1291,6 +1318,43 @@ class AnnotatorUIManager {
     const copyImgText = modal.querySelector('#ai-copy-img-text');
     const dlPngText = modal.querySelector('#ai-dl-png-text');
     const screenTabs = modal.querySelectorAll('.ai-screen-tab');
+    const primaryCtaBtn = modal.querySelector('#ai-btn-primary-action');
+    const primaryCtaTitle = modal.querySelector('#ai-primary-cta-title');
+    const primaryCtaSub = modal.querySelector('#ai-primary-cta-sub');
+    const promptFormatName = modal.querySelector('#ai-prompt-format-name');
+    const promptPre = modal.querySelector('#ai-prompt-preview');
+    const formatTabs = modal.querySelectorAll('.ai-format-tab');
+
+    const copyImgBtn = modal.querySelector('#ai-btn-copy-image');
+    const dlPngBtn = modal.querySelector('#ai-btn-dl-png');
+    const dlAllBtn = modal.querySelector('#ai-btn-dl-all-png');
+    const dlJsonBtn = modal.querySelector('#ai-btn-dl-json');
+    const resumeBtn = modal.querySelector('#ai-btn-resume');
+    const quitBtn = modal.querySelector('#ai-btn-quit-all');
+    const closeBtn = modal.querySelector('#ai-modal-close');
+
+    const updateFormatUI = (format) => {
+      this.currentExportFormat = format;
+      const config = formatConfigs[format] || formatConfigs.agent;
+      if (primaryCtaTitle) primaryCtaTitle.textContent = config.ctaMain;
+      if (primaryCtaSub) primaryCtaSub.textContent = config.ctaSub;
+      if (promptFormatName) promptFormatName.textContent = config.name;
+
+      const newPrompt = (format === 'json')
+        ? JSON.stringify(payload, null, 2)
+        : this.generateConsolidatedPrompt(pages, format);
+
+      if (promptPre) promptPre.textContent = newPrompt;
+    };
+
+    formatTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        formatTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const format = tab.getAttribute('data-format');
+        updateFormatUI(format);
+      });
+    });
 
     screenTabs.forEach(tab => {
       tab.addEventListener('click', () => {
@@ -1302,29 +1366,8 @@ class AnnotatorUIManager {
 
         if (thumbImg) thumbImg.src = activePage.dataUrl;
         if (previewTag) previewTag.textContent = `✓ Capture Écran #${activePage.stepIndex}`;
-        if (copyImgText) copyImgText.textContent = `Copier l'écran #${activePage.stepIndex}`;
+        if (copyImgText) copyImgText.textContent = `Copier écran #${activePage.stepIndex}`;
         if (dlPngText) dlPngText.textContent = `Télécharger écran #${activePage.stepIndex}`;
-      });
-    });
-
-    const copyImgBtn = modal.querySelector('#ai-btn-copy-image');
-    const copyPromptBtn = modal.querySelector('#ai-btn-copy-prompt');
-    const dlPngBtn = modal.querySelector('#ai-btn-dl-png');
-    const dlAllBtn = modal.querySelector('#ai-btn-dl-all-png');
-    const dlJsonBtn = modal.querySelector('#ai-btn-dl-json');
-    const resumeBtn = modal.querySelector('#ai-btn-resume');
-    const quitBtn = modal.querySelector('#ai-btn-quit-all');
-    const closeBtn = modal.querySelector('#ai-modal-close');
-    const promptPre = modal.querySelector('#ai-prompt-preview');
-    const formatTabs = modal.querySelectorAll('.ai-format-tab');
-
-    formatTabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        formatTabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        this.currentExportFormat = tab.getAttribute('data-format');
-        const newPrompt = this.generateConsolidatedPrompt(pages, this.currentExportFormat);
-        promptPre.textContent = newPrompt;
       });
     });
 
@@ -1335,25 +1378,41 @@ class AnnotatorUIManager {
       });
     });
 
-    copyImgBtn.addEventListener('click', () => this.copyImageToClipboard(activePage.dataUrl, copyImgBtn));
-    copyPromptBtn.addEventListener('click', () => {
-      const activePrompt = this.generateConsolidatedPrompt(pages, this.currentExportFormat);
-      this.copyPromptToClipboard(activePrompt, copyPromptBtn);
-    });
-    dlPngBtn.addEventListener('click', () => {
-      const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = isMultiScreen
-        ? `annotation-ecran-${activePage.stepIndex}-${hostname}-${timestamp}.png`
-        : `annotation-${hostname}-${timestamp}.png`;
-      this.downloadPNG(activePage.dataUrl, filename);
-    });
+    // Primary CTA Action Handler
+    if (primaryCtaBtn) {
+      primaryCtaBtn.addEventListener('click', () => {
+        if (this.currentExportFormat === 'json') {
+          const jsonText = JSON.stringify(payload, null, 2);
+          this.copyPromptToClipboard(jsonText, primaryCtaBtn);
+        } else {
+          const activePrompt = this.generateConsolidatedPrompt(pages, this.currentExportFormat);
+          this.copyPromptToClipboard(activePrompt, primaryCtaBtn);
+        }
+      });
+    }
+
+    if (copyImgBtn) {
+      copyImgBtn.addEventListener('click', () => this.copyImageToClipboard(activePage.dataUrl, copyImgBtn));
+    }
+
+    if (dlPngBtn) {
+      dlPngBtn.addEventListener('click', () => {
+        const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = isMultiScreen
+          ? `annotation-ecran-${activePage.stepIndex}-${hostname}-${timestamp}.png`
+          : `annotation-${hostname}-${timestamp}.png`;
+        this.downloadPNG(activePage.dataUrl, filename);
+      });
+    }
 
     if (dlAllBtn) {
       dlAllBtn.addEventListener('click', () => this.downloadAllPNG(pages));
     }
 
-    dlJsonBtn.addEventListener('click', () => this.downloadJSON(payload));
+    if (dlJsonBtn) {
+      dlJsonBtn.addEventListener('click', () => this.downloadJSON(payload));
+    }
 
     const closeModal = () => {
       modal.remove();

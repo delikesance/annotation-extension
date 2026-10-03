@@ -219,12 +219,12 @@ test('Real Browser End-to-End: Multi-Page Session and Pause Mode in Chromium', a
       if (!modal) return null;
 
       const promptPreview = modal.querySelector('#ai-prompt-preview')?.textContent || '';
-      const stepPill = modal.querySelector('.ai-export-step-pill')?.textContent || '';
-      return { promptPreview, stepPill };
+      const exportBadge = modal.querySelector('.ai-export-badge')?.textContent || '';
+      return { promptPreview, exportBadge };
     });
 
     assert.ok(exportData, 'Multi-page export modal must render');
-    assert.match(exportData.stepPill, /2 (étapes|écrans)/i, 'Step pill must indicate 2 screens/steps in session');
+    assert.match(exportData.exportBadge, /2 (étapes|écrans)/i, 'Export badge must indicate 2 screens/steps in session');
 
     // Verify chronological User Journey prompt structure
     assert.ok(exportData.promptPreview.includes('Étape #1'), 'Prompt must contain Étape #1');

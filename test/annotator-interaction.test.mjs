@@ -250,10 +250,10 @@ test('AnnotatorUIManager - renders directional arrow SVG and opens export modal 
   assert.equal(window.AnnotatorUI.annotations.length, 1);
   assert.ok(window.AnnotatorUI.annotations[0].arrowEl, 'Saved annotation must retain arrowEl');
 
-  // 2. Click "Terminer" in HUD
+  // 2. Click "Exporter" in HUD
   const finishBtn = window.AnnotatorUI.hud.querySelector('#ai-btn-export');
-  assert.ok(finishBtn, 'Finish button must exist in HUD');
-  assert.match(finishBtn.textContent, /Terminer/);
+  assert.ok(finishBtn, 'Export button must exist in HUD');
+  assert.match(finishBtn.textContent, /Exporter/);
 
   await window.AnnotatorUI.finishAndShowExportModal();
 
@@ -261,18 +261,28 @@ test('AnnotatorUIManager - renders directional arrow SVG and opens export modal 
   assert.ok(window.AnnotatorUI.activeExportModal, 'Export modal must be displayed');
   const modal = window.AnnotatorUI.activeExportModal;
 
+  const primaryCtaBtn = modal.querySelector('#ai-btn-primary-action');
   const copyImgBtn = modal.querySelector('#ai-btn-copy-image');
-  const copyPromptBtn = modal.querySelector('#ai-btn-copy-prompt');
   const dlPngBtn = modal.querySelector('#ai-btn-dl-png');
   const dlJsonBtn = modal.querySelector('#ai-btn-dl-json');
 
-  assert.ok(copyImgBtn, 'Copier l\'image button must exist');
-  assert.ok(copyPromptBtn, 'Copier le prompt IA button must exist');
+  assert.ok(primaryCtaBtn, 'Primary mode-specific action button must exist');
+  assert.match(primaryCtaBtn.textContent, /Copier pour l'Agent IA/);
+  assert.ok(copyImgBtn, 'Copier l\'image button must exist in secondary tools');
   assert.ok(dlPngBtn, 'Télécharger PNG button must exist');
   assert.ok(dlJsonBtn, 'Télécharger JSON button must exist');
 
-  // 4. Test "Copier le prompt"
-  copyPromptBtn.click();
+  // Test dynamic primary CTA on format switch
+  const githubTab = modal.querySelector('[data-format="github"]');
+  githubTab.click();
+  assert.match(primaryCtaBtn.textContent, /Copier pour GitHub Issue/);
+
+  const agentTab = modal.querySelector('[data-format="agent"]');
+  agentTab.click();
+  assert.match(primaryCtaBtn.textContent, /Copier pour l'Agent IA/);
+
+  // 4. Test Primary CTA Copy
+  primaryCtaBtn.click();
   await new Promise(r => setTimeout(r, 20));
   assert.ok(clipboardText.includes('Remplacer ce bouton par un CTA vert'), 'Prompt must contain the annotation comment');
   assert.ok(clipboardText.includes('Point #1'), 'Prompt must contain Point #1');
@@ -497,8 +507,8 @@ test('AnnotatorUIManager - Export modal provides screen tabs and batch download 
   // Verify tabs
   const tabs = modal.querySelectorAll('.ai-screen-tab');
   assert.equal(tabs.length, 2, 'Should have 2 screen tabs');
-  assert.ok(tabs[0].textContent.includes('Écran #1'));
-  assert.ok(tabs[1].textContent.includes('Écran #2'));
+  assert.match(tabs[0].textContent, /Écran\s*#?1/);
+  assert.match(tabs[1].textContent, /Écran\s*#?2/);
   assert.ok(tabs[1].classList.contains('active'), 'Latest screen (Screen #2) should be active by default');
 
   const dlPngText = modal.querySelector('#ai-dl-png-text');
@@ -512,7 +522,7 @@ test('AnnotatorUIManager - Export modal provides screen tabs and batch download 
   // Verify batch download button
   const dlAllBtn = modal.querySelector('#ai-btn-dl-all-png');
   assert.ok(dlAllBtn, 'Batch download all button must exist in multi-screen session');
-  assert.ok(dlAllBtn.textContent.includes('2 images'));
+  assert.ok(dlAllBtn.textContent.includes('2'));
 
   // Test downloadAllPNG execution
   const dlMessagesBefore = sentMessages.filter(m => m.action === 'DOWNLOAD_FILE').length;

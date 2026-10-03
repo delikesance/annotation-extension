@@ -230,18 +230,18 @@ test('Real Browser End-to-End: Full Annotation Lifecycle in Chromium with Bottom
       const modal = root.shadowRoot.querySelector('.ai-export-backdrop');
       if (!modal) return null;
 
-      const exportPill = modal.querySelector('.ai-export-pill')?.textContent || '';
+      const exportBadge = modal.querySelector('.ai-export-badge')?.textContent || '';
       const promptPreview = modal.querySelector('#ai-prompt-preview')?.textContent || '';
       const copyImgBtn = Boolean(modal.querySelector('#ai-btn-copy-image'));
-      const copyPromptBtn = Boolean(modal.querySelector('#ai-btn-copy-prompt'));
+      const primaryCtaBtn = Boolean(modal.querySelector('#ai-btn-primary-action'));
 
-      return { exportPill, promptPreview, copyImgBtn, copyPromptBtn };
+      return { exportBadge, promptPreview, copyImgBtn, primaryCtaBtn };
     });
 
     assert.ok(modalData, 'Export modal must be rendered in Shadow DOM');
     assert.ok(modalData.copyImgBtn, 'Copy Image button must exist');
-    assert.ok(modalData.copyPromptBtn, 'Copy Prompt button must exist');
-    assert.match(modalData.exportPill, /2 annotations/i, 'Export pill must show 2 annotations');
+    assert.ok(modalData.primaryCtaBtn, 'Primary CTA button must exist');
+    assert.match(modalData.exportBadge, /2 annotations/i, 'Export badge must show 2 annotations');
 
     // Verify both points appear in prompt
     assert.ok(modalData.promptPreview.includes('Point #1'), 'Prompt must include Point #1');
