@@ -1,7 +1,8 @@
 /**
  * UI Manager for AI Web Annotator
  * Manages the Shadow DOM lifecycle, hover inspector, numbered badges,
- * inline comment card, HUD toolbar, JEV token optimizer, and export workflow.
+ * inline comment card, floating island HUD, Pause mode (free navigation),
+ * and Multi-Page user journey sessions.
  */
 
 class AnnotatorUIManager {
@@ -13,17 +14,24 @@ class AnnotatorUIManager {
     this.highlightLabel = null;
     this.activeCommentCard = null;
 
-    this.annotations = []; // Array of { id, index, element, comment, badgeEl, boxEl, arrowEl, metadata }
+    this.annotations = []; // Current page annotations: { id, index, element, comment, badgeEl, boxEl, arrowEl, metadata }
     this.hoveredElement = null;
     this.selectedAnnotation = null;
     this.isInspecting = false;
+    this.isPaused = false;
     this.isEditingComment = false;
     this.activeExportModal = null;
     this.lastExportData = null;
     this.currentExportFormat = 'agent'; // 'agent' | 'github' | 'json'
 
-    this.jevOptimizer = typeof JevOptimizer !== 'undefined' ? new JevOptimizer() : null;
-    this.optimizedAnnotations = [];
+    // Multi-page session tracking
+    this.session = {
+      id: null,
+      isActive: false,
+      activeTabId: null,
+      pages: [], // Array of { stepIndex, url, title, dataUrl, annotations }
+      startingIndex: 1
+    };
 
     this.boundOnMouseMove = this.onMouseMove.bind(this);
     this.boundOnClick = this.onClick.bind(this);
@@ -46,7 +54,6 @@ class AnnotatorUIManager {
 
     this.shadow = this.host.attachShadow({ mode: 'open' });
 
-    // Inject styles into Shadow DOM
     const styleLink = document.createElement('link');
     styleLink.rel = 'stylesheet';
     styleLink.href = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
@@ -73,7 +80,7 @@ class AnnotatorUIManager {
     this.hud = document.createElement('div');
     this.hud.className = 'ai-annotator-hud';
     this.hud.innerHTML = `
-      <div class="ai-hud-drag-handle" title="Glisser pour déplacer la barre d'outils">
+      <div class="ai-hud-drag-handle" title="Glisser pour déplacer le dock">
         <svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="4" cy="3" r="1" fill="currentColor"/>
           <circle cx="8" cy="3" r="1" fill="currentColor"/>
@@ -83,13 +90,20 @@ class AnnotatorUIManager {
           <circle cx="8" cy="11" r="1" fill="currentColor"/>
         </svg>
       </div>
-      <div class="ai-hud-status">
+      <div class="ai-hud-status" id="ai-hud-status-badge">
         <span class="ai-pulse-dot"></span>
-        <span class="ai-hud-status-text">Page Figée</span>
+        <span class="ai-hud-status-text" id="ai-hud-status-text">Page Figée</span>
       </div>
       <div class="ai-hud-counter" id="ai-counter">0 annotation</div>
-      <div class="ai-hud-shortcuts-hint" title="Raccourcis clavier : Échap (Quitter), Ctrl+Entrée (Valider)">
-        <span>⚡ Échap / Ctrl+↵</span>
+      <button class="ai-hud-btn ai-hud-btn-pause" id="ai-btn-pause" title="Mettre en pause pour interagir / naviguer librement (Touche P)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <rect x="6" y="4" width="4" height="16" rx="1"/>
+          <rect x="14" y="4" width="4" height="16" rx="1"/>
+        </svg>
+        <span id="ai-btn-pause-text">Pause</span>
+      </button>
+      <div class="ai-hud-shortcuts-hint" title="Raccourcis : P (Pause/Reprendre), Échap (Quitter), Ctrl+Entrée (Valider)">
+        <span>⚡ P / Ctrl+↵</span>
       </div>
       <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Terminer et exporter les annotations (Ctrl+E)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -111,6 +125,7 @@ class AnnotatorUIManager {
       </button>
     `;
 
+    this.hud.querySelector('#ai-btn-pause').addEventListener('click', () => this.togglePause());
     this.hud.querySelector('#ai-btn-export').addEventListener('click', () => this.finishAndShowExportModal());
     this.hud.querySelector('#ai-btn-cancel').addEventListener('click', () => this.deactivate());
 
@@ -172,34 +187,190 @@ class AnnotatorUIManager {
   updateCounter() {
     const counter = this.shadow.getElementById('ai-counter');
     if (!counter) return;
-    const count = this.annotations.length;
-    counter.textContent = `${count} annotation${count > 1 ? 's' : ''}`;
+
+    const previousCount = (this.session && this.session.pages)
+      ? this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0)
+      : 0;
+
+    const totalCount = previousCount + this.annotations.length;
+    const pageSteps = (this.session && this.session.pages) ? this.session.pages.length + 1 : 1;
+
+    if (pageSteps > 1) {
+      counter.textContent = `${totalCount} annotation${totalCount > 1 ? 's' : ''} (${pageSteps} pages)`;
+    } else {
+      counter.textContent = `${totalCount} annotation${totalCount > 1 ? 's' : ''}`;
+    }
   }
 
   activate() {
     this.init();
     this.isInspecting = true;
+    this.isPaused = false;
 
-    // Enable page interaction freeze
+    // Start or resume multi-page session
+    if (!this.session.isActive) {
+      this.session.id = 'session_' + Date.now();
+      this.session.isActive = true;
+      this.session.pages = [];
+      this.session.startingIndex = 1;
+      this.syncSessionToStorage();
+    }
+
     if (typeof window !== 'undefined' && window.DOMFreeze) {
       window.DOMFreeze.enable();
     }
 
-    // Attach mouse and key listeners
     window.addEventListener('mousemove', this.boundOnMouseMove, true);
     window.addEventListener('click', this.boundOnClick, true);
     window.addEventListener('keydown', this.boundOnKeyDown, true);
 
     this.host.style.display = 'block';
+    this.updateHUDState();
     this.showToast('🎯 Mode Annotation activé : Cliquez sur un élément pour annoter.');
+  }
+
+  togglePause() {
+    if (this.isPaused) {
+      this.resume();
+    } else {
+      this.pause();
+    }
+  }
+
+  pause() {
+    if (!this.isInspecting && !this.isPaused) return;
+    this.isPaused = true;
+    this.isInspecting = false;
+
+    if (this.highlightBox) {
+      this.highlightBox.style.display = 'none';
+      this.hoveredElement = null;
+    }
+
+    if (this.activeCommentCard) {
+      this.cancelActiveComment();
+    }
+
+    // Unfreeze DOM so user can freely click, scroll, navigate, fill forms
+    if (typeof window !== 'undefined' && window.DOMFreeze) {
+      window.DOMFreeze.disable();
+    }
+
+    this.updateHUDState();
+    this.syncSessionToStorage();
+    this.showToast('⏸️ Mode Pause activé : Vous pouvez interagir et naviguer librement.');
+  }
+
+  resume() {
+    this.isPaused = false;
+    this.isInspecting = true;
+
+    // Re-freeze DOM for element inspection
+    if (typeof window !== 'undefined' && window.DOMFreeze) {
+      window.DOMFreeze.enable();
+    }
+
+    this.updateHUDState();
+    this.syncSessionToStorage();
+    this.showToast('🎯 Mode Annotation réactivé : Cliquez sur un élément pour annoter.');
+  }
+
+  updateHUDState() {
+    if (!this.hud) return;
+
+    const statusBadge = this.hud.querySelector('#ai-hud-status-badge');
+    const statusText = this.hud.querySelector('#ai-hud-status-text');
+    const pauseBtn = this.hud.querySelector('#ai-btn-pause');
+    const pauseText = this.hud.querySelector('#ai-btn-pause-text');
+
+    if (this.isPaused) {
+      this.hud.classList.add('ai-hud-paused');
+      if (statusBadge) statusBadge.classList.add('is-paused');
+      if (statusText) statusText.textContent = 'En Pause (Libre)';
+      if (pauseBtn) {
+        pauseBtn.classList.add('is-paused');
+        pauseBtn.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <span>Reprendre</span>
+        `;
+      }
+    } else {
+      this.hud.classList.remove('ai-hud-paused');
+      if (statusBadge) statusBadge.classList.remove('is-paused');
+      if (statusText) statusText.textContent = 'Page Figée';
+      if (pauseBtn) {
+        pauseBtn.classList.remove('is-paused');
+        pauseBtn.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <rect x="6" y="4" width="4" height="16" rx="1"/>
+            <rect x="14" y="4" width="4" height="16" rx="1"/>
+          </svg>
+          <span>Pause</span>
+        `;
+      }
+    }
+
+    this.updateCounter();
+  }
+
+  restoreFromSession(sessionData) {
+    if (!sessionData || !sessionData.isActive) return;
+
+    this.session = sessionData;
+    const previousPointsCount = this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0);
+    this.session.startingIndex = previousPointsCount + 1;
+
+    this.init();
+    this.host.style.display = 'block';
+
+    // Start in active or paused state
+    if (sessionData.isPaused) {
+      this.pause();
+    } else {
+      this.activate();
+    }
+
+    this.updateCounter();
+    this.showToast(`🌐 Étape #${this.session.pages.length + 1} de la session : ${document.title}`);
+  }
+
+  async syncSessionToStorage() {
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+
+    try {
+      const payload = {
+        id: this.session.id,
+        isActive: this.session.isActive,
+        isPaused: this.isPaused,
+        pages: this.session.pages,
+        currentPage: {
+          url: window.location.href,
+          title: document.title,
+          annotationsCount: this.annotations.length
+        }
+      };
+
+      await chrome.storage.local.set({ ai_web_annotator_session: payload });
+    } catch (_) {}
+  }
+
+  async clearSessionStorage() {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      try {
+        await chrome.storage.local.remove(['ai_web_annotator_session']);
+      } catch (_) {}
+    }
+    this.session = { id: null, isActive: false, activeTabId: null, pages: [], startingIndex: 1 };
   }
 
   deactivate() {
     this.isInspecting = false;
+    this.isPaused = false;
     this.isEditingComment = false;
     this.selectedAnnotation = null;
 
-    // Un-freeze DOM
     if (typeof window !== 'undefined' && window.DOMFreeze) {
       window.DOMFreeze.disable();
     }
@@ -222,30 +393,28 @@ class AnnotatorUIManager {
       this.activeExportModal = null;
     }
 
-    // Clear saved annotations
     for (const ann of this.annotations) {
       if (ann.badgeEl) ann.badgeEl.remove();
       if (ann.boxEl) ann.boxEl.remove();
       if (ann.arrowEl) ann.arrowEl.remove();
     }
     this.annotations = [];
-    this.optimizedAnnotations = [];
     this.updateCounter();
 
     if (this.host) {
       this.host.style.display = 'none';
     }
 
-    // Reset action badge
+    this.clearSessionStorage();
+
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage({ action: 'SET_BADGE', text: '' }).catch(() => {});
     }
   }
 
   onMouseMove(e) {
-    if (!this.isInspecting || this.isEditingComment) return;
+    if (!this.isInspecting || this.isPaused || this.isEditingComment) return;
 
-    // Find element under cursor excluding our extension UI
     const elements = document.elementsFromPoint ? document.elementsFromPoint(e.clientX, e.clientY) : [];
     const target = elements.find(el => el !== this.host && !this.host.contains(el));
 
@@ -266,7 +435,6 @@ class AnnotatorUIManager {
     this.highlightBox.style.width = `${rect.width}px`;
     this.highlightBox.style.height = `${rect.height}px`;
 
-    // Format tag label
     const tag = target.tagName.toLowerCase();
     const id = target.id ? `#${target.id}` : '';
     const firstClass = target.classList.length > 0 ? `.${target.classList[0]}` : '';
@@ -274,9 +442,8 @@ class AnnotatorUIManager {
   }
 
   onClick(e) {
-    if (!this.isInspecting) return;
+    if (!this.isInspecting || this.isPaused) return;
 
-    // Allow interaction with Shadow DOM elements (buttons, inputs)
     const path = e.composedPath ? e.composedPath() : [];
     if (path.includes(this.host)) {
       return;
@@ -285,7 +452,6 @@ class AnnotatorUIManager {
     e.preventDefault();
     e.stopPropagation();
 
-    // If already editing a comment, don't create another point immediately
     if (this.isEditingComment) {
       return;
     }
@@ -319,16 +485,24 @@ class AnnotatorUIManager {
       return;
     }
 
+    // 'P' key toggles Pause (when not typing in an input/textarea)
+    if ((e.key === 'p' || e.key === 'P') && !this.isEditingComment && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+      e.preventDefault();
+      this.togglePause();
+      return;
+    }
+
     // Ctrl+E or Cmd+E triggers export
     if ((e.ctrlKey || e.metaKey) && (e.key === 'e' || e.key === 'E')) {
       e.preventDefault();
-      if (!this.activeExportModal && this.annotations.length > 0) {
+      const totalPoints = (this.session.pages.length > 0) || (this.annotations.length > 0);
+      if (!this.activeExportModal && totalPoints) {
         this.finishAndShowExportModal();
       }
       return;
     }
 
-    // Delete or Backspace removes selected annotation if not typing in textarea
+    // Delete or Backspace removes selected annotation if not editing text
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedAnnotation && !this.isEditingComment) {
       e.preventDefault();
       this.deleteAnnotation(this.selectedAnnotation);
@@ -336,7 +510,11 @@ class AnnotatorUIManager {
   }
 
   createAnnotationPoint(targetElement) {
-    const nextIndex = this.annotations.length + 1;
+    const previousPointsCount = (this.session && this.session.pages)
+      ? this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0)
+      : 0;
+
+    const nextIndex = previousPointsCount + this.annotations.length + 1;
     const rect = targetElement.getBoundingClientRect ? targetElement.getBoundingClientRect() : { top: 0, left: 0, width: 0, height: 0 };
     const scrollX = window.scrollX || window.pageXOffset || 0;
     const scrollY = window.scrollY || window.pageYOffset || 0;
@@ -348,7 +526,6 @@ class AnnotatorUIManager {
     const elemWidth = Math.max(rect.width, 12);
     const elemHeight = Math.max(rect.height, 12);
 
-    // 1. Target boundary box
     const boxEl = document.createElement('div');
     boxEl.className = 'ai-annotated-target-box';
     boxEl.style.top = `${elemTop}px`;
@@ -357,7 +534,6 @@ class AnnotatorUIManager {
     boxEl.style.height = `${elemHeight}px`;
     this.shadow.appendChild(boxEl);
 
-    // Compute badge position & target arrow destination
     let tx = elemLeft + 2;
     let ty = elemTop + 2;
     let bx = elemLeft - 36;
@@ -375,11 +551,9 @@ class AnnotatorUIManager {
     bx = Math.max(20, bx);
     by = Math.max(20, by);
 
-    // 2. Visual directional arrow
     const arrowEl = this.createArrowElement(nextIndex, bx, by, tx, ty);
     this.shadow.appendChild(arrowEl);
 
-    // 3. Numbered Badge
     const badgeEl = document.createElement('div');
     badgeEl.className = 'ai-annotation-badge';
     badgeEl.textContent = nextIndex;
@@ -535,6 +709,7 @@ class AnnotatorUIManager {
 
       this.closeCommentModal();
       this.updateCounter();
+      this.syncSessionToStorage();
 
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({
@@ -585,6 +760,7 @@ class AnnotatorUIManager {
     this.reindexAnnotations();
     this.closeCommentModal();
     this.updateCounter();
+    this.syncSessionToStorage();
 
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage({
@@ -616,8 +792,12 @@ class AnnotatorUIManager {
   }
 
   reindexAnnotations() {
+    const previousPointsCount = (this.session && this.session.pages)
+      ? this.session.pages.reduce((acc, p) => acc + (p.annotations ? p.annotations.length : 0), 0)
+      : 0;
+
     this.annotations.forEach((ann, idx) => {
-      ann.index = idx + 1;
+      ann.index = previousPointsCount + idx + 1;
       if (ann.badgeEl) ann.badgeEl.textContent = ann.index;
       if (ann.metadata) {
         ann.metadata.index = ann.index;
@@ -630,7 +810,10 @@ class AnnotatorUIManager {
   }
 
   async finishAndShowExportModal() {
-    if (this.annotations.length === 0) {
+    const hasCurrent = this.annotations.length > 0;
+    const hasPrevious = this.session && this.session.pages && this.session.pages.length > 0;
+
+    if (!hasCurrent && !hasPrevious) {
       this.showToast('⚠️ Aucune annotation enregistrée. Cliquez d\'abord sur un élément pour annoter.');
       return;
     }
@@ -639,158 +822,151 @@ class AnnotatorUIManager {
       this.closeCommentModal();
     }
 
-    this.showToast('🧠 Optimisation JEV & Génération de la capture...');
+    this.showToast('📸 Préparation de l\'exportation...');
 
-    // Hide HUD for clean screenshot
     this.hud.style.display = 'none';
     this.highlightBox.style.display = 'none';
 
     await new Promise(r => setTimeout(r, 150));
 
     try {
-      let dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      let currentPageDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         const response = await chrome.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
         if (response && response.success && response.dataUrl) {
-          dataUrl = response.dataUrl;
+          currentPageDataUrl = response.dataUrl;
         }
       }
 
       this.hud.style.display = 'flex';
 
-      // Run JEV token optimizer on all annotations
-      if (!this.jevOptimizer && typeof JevOptimizer !== 'undefined') {
-        this.jevOptimizer = new JevOptimizer();
+      // Save current page to session
+      const allPages = [...(this.session.pages || [])];
+      if (hasCurrent) {
+        allPages.push({
+          stepIndex: allPages.length + 1,
+          url: window.location.href,
+          title: document.title,
+          dataUrl: currentPageDataUrl,
+          annotations: this.annotations.map(a => ({
+            index: a.index,
+            comment: a.comment,
+            metadata: a.metadata || { element: { tag: a.element.tagName } }
+          }))
+        });
       }
 
-      if (this.jevOptimizer) {
-        this.optimizedAnnotations = await Promise.all(
-          this.annotations.map(ann => this.jevOptimizer.optimizeAnnotation(ann))
-        );
-      } else {
-        this.optimizedAnnotations = this.annotations.map(a => ({
-          index: a.index,
-          comment: a.comment,
-          intent: 'layout_css',
-          intentLabel: '📐 Layout & Responsive',
-          priority: 'P2',
-          priorityLabel: 'Moyenne (P2)',
-          prunedStyles: a.metadata ? (a.metadata.element?.computedStyles || {}) : {},
-          tokenSavings: { rawEstimate: 200, prunedEstimate: 60, savedPercent: 70 }
-        }));
-      }
+      const promptText = this.generateConsolidatedPrompt(allPages, this.currentExportFormat);
+      const payload = this.generateMultiPagePayload(allPages, promptText);
 
-      const promptText = this.generateAIPrompt(this.currentExportFormat);
-      const payload = this.generateContextPayload(promptText);
+      this.lastExportData = {
+        dataUrl: currentPageDataUrl,
+        promptText,
+        payload,
+        pages: allPages
+      };
 
-      this.lastExportData = { dataUrl, promptText, payload };
-      this.showExportModal(dataUrl, promptText, payload);
+      this.showExportModal(allPages, promptText, payload);
 
     } catch (err) {
       this.hud.style.display = 'flex';
-      console.error('[AI Web Annotator] Capture failed:', err);
+      console.error('[AI Web Annotator] Export failed:', err);
       this.showToast(`Erreur : ${err.message}`);
     }
   }
 
-  generateAIPrompt(format = 'agent') {
+  generateConsolidatedPrompt(pages, format = 'agent') {
     if (format === 'github') {
-      return this.generateGitHubPrompt();
+      return this.generateGitHubMultiPagePrompt(pages);
     }
     if (format === 'json') {
-      return JSON.stringify(this.generateContextPayload(), null, 2);
+      return JSON.stringify(this.generateMultiPagePayload(pages), null, 2);
     }
-    return this.generateAgentPrompt();
+    return this.generateAgentMultiPagePrompt(pages);
   }
 
-  generateAgentPrompt() {
+  generateAgentMultiPagePrompt(pages) {
+    const isMultiPage = pages.length > 1;
     let prompt = `### 🎯 Contexte Web & Annotations pour Agent IA\n`;
-    prompt += `- **Page** : ${document.title} (\`${window.location.href}\`)\n`;
-    prompt += `- **Viewport** : ${window.innerWidth}x${window.innerHeight} (dpr: ${window.devicePixelRatio || 1})\n`;
-    prompt += `- **Total Points** : ${this.annotations.length}\n\n`;
+    prompt += `- **Mode** : ${isMultiPage ? `Parcours Multi-Pages (${pages.length} étapes)` : 'Page Unique'}\n`;
+    prompt += `- **Date/Heure** : ${new Date().toISOString()}\n\n`;
     prompt += `### 📌 Actions & Corrections Demandées :\n`;
 
-    this.annotations.forEach((a, idx) => {
-      const opt = this.optimizedAnnotations[idx] || {};
-      const meta = a.metadata ? a.metadata.element : {};
-      const intentTag = opt.intentLabel || '🔧 Modification';
-      const priority = opt.priorityLabel || 'P2';
-
-      prompt += `\n#### [Point #${a.index}] ${intentTag} - ${priority}\n`;
-      prompt += `- **Demande / Problème** : ${a.comment || '(Aucun commentaire)'}\n`;
-      prompt += `- **Élément Cible** : \`<${meta.tag ? meta.tag.toLowerCase() : 'element'}>\`\n`;
-      if (meta.cssSelector) prompt += `- **Sélecteur CSS Unique** : \`${meta.cssSelector}\`\n`;
-      if (meta.xpath) prompt += `- **XPath** : \`${meta.xpath}\`\n`;
-      if (meta.text) prompt += `- **Texte Visible** : "${meta.text}"\n`;
-
-      // Include pruned CSS styles (distilled by Jev)
-      if (opt.prunedStyles && Object.keys(opt.prunedStyles).length > 0) {
-        const cssLines = Object.entries(opt.prunedStyles)
-          .map(([k, v]) => `${k}: ${v};`)
-          .join(' ');
-        prompt += `- **Styles Calculés Clés** : \`${cssLines}\`\n`;
+    pages.forEach((page) => {
+      if (isMultiPage) {
+        prompt += `\n---\n### 🚩 Étape #${page.stepIndex} : ${page.title} (\`${page.url}\`)\n`;
       }
 
-      // Include parent layout container if relevant
-      if (opt.parentContext) {
-        prompt += `- **Conteneur Parent** : \`<${opt.parentContext.tag}>\` (${opt.parentContext.display || 'block'}, ${opt.parentContext.dimensions || ''})\n`;
-      }
+      (page.annotations || []).forEach((a) => {
+        const meta = a.metadata ? a.metadata.element : {};
+        prompt += `\n#### [Point #${a.index}]\n`;
+        prompt += `- **Demande / Problème** : ${a.comment || '(Aucun commentaire)'}\n`;
+        prompt += `- **Élément Cible** : \`<${meta.tag ? meta.tag.toLowerCase() : 'element'}>\`\n`;
+        if (meta.cssSelector) prompt += `- **Sélecteur CSS** : \`${meta.cssSelector}\`\n`;
+        if (meta.xpath) prompt += `- **XPath** : \`${meta.xpath}\`\n`;
+        if (meta.text) prompt += `- **Texte Visible** : "${meta.text}"\n`;
+
+        // Output clean computed layout styles if present
+        if (meta.computedStyles && Object.keys(meta.computedStyles).length > 0) {
+          const styles = meta.computedStyles;
+          const clean = [];
+          if (styles.display) clean.push(`display: ${styles.display}`);
+          if (styles.position) clean.push(`position: ${styles.position}`);
+          if (styles.width) clean.push(`width: ${styles.width}`);
+          if (styles.height) clean.push(`height: ${styles.height}`);
+          if (styles.margin && styles.margin !== '0px 0px 0px 0px') clean.push(`margin: ${styles.margin}`);
+          if (styles.padding && styles.padding !== '0px 0px 0px 0px') clean.push(`padding: ${styles.padding}`);
+          if (clean.length > 0) {
+            prompt += `- **Styles Calculés** : \`${clean.join('; ')};\`\n`;
+          }
+        }
+      });
     });
 
-    prompt += `\n---\n*Généré par AI Web Annotator avec distillation de tokens JEV (TypeSafe System One).*`;
+    prompt += `\n---\n*Généré par AI Web Annotator.*`;
     return prompt;
   }
 
-  generateGitHubPrompt() {
-    let md = `## 🐛 Rapport d'Anomalies & Ajustements UI\n\n`;
-    md += `**URL :** ${window.location.href}  \n`;
-    md += `**Résolution :** ${window.innerWidth}x${window.innerHeight}  \n\n`;
-    md += `### 📋 Liste des points à traiter :\n\n`;
-
-    this.annotations.forEach((a, idx) => {
-      const opt = this.optimizedAnnotations[idx] || {};
-      const meta = a.metadata ? a.metadata.element : {};
-      const intentTag = opt.intentLabel || 'Ajustement';
-
-      md += `- [ ] **[Point #${a.index}]** [${intentTag}] \`${meta.cssSelector || meta.tag || 'element'}\` : ${a.comment || 'À corriger'}\n`;
+  generateGitHubMultiPagePrompt(pages) {
+    let md = `## 🐛 Rapport d'Anomalies & Parcours Utilisateur\n\n`;
+    pages.forEach((page) => {
+      md += `### 🚩 Étape #${page.stepIndex} : ${page.title}\n`;
+      md += `**URL :** ${page.url}  \n\n`;
+      (page.annotations || []).forEach((a) => {
+        const meta = a.metadata ? a.metadata.element : {};
+        md += `- [ ] **[Point #${a.index}]** \`${meta.cssSelector || meta.tag || 'element'}\` : ${a.comment || 'À corriger'}\n`;
+      });
+      md += `\n`;
     });
-
     return md;
   }
 
-  generateContextPayload(promptText) {
+  generateMultiPagePayload(pages, promptText) {
     return {
       meta: {
-        generator: 'AI Web Annotator (Manifest V3 + JEV)',
+        generator: 'AI Web Annotator',
         version: '1.1.0',
-        pageUrl: window.location.href,
-        pageTitle: document.title,
         timestamp: new Date().toISOString(),
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight,
-          devicePixelRatio: window.devicePixelRatio || 1
-        },
-        totalAnnotations: this.annotations.length
+        totalSteps: pages.length,
+        totalAnnotations: pages.reduce((acc, p) => acc + (p.annotations?.length || 0), 0)
       },
-      annotations: this.annotations.map((a, idx) => ({
-        index: a.index,
-        comment: a.comment,
-        jevAnalysis: this.optimizedAnnotations[idx] || null,
-        element: a.metadata ? a.metadata.element : { tag: a.element.tagName }
+      pages: pages.map(p => ({
+        stepIndex: p.stepIndex,
+        url: p.url,
+        title: p.title,
+        annotations: p.annotations
       })),
-      aiPrompt: promptText || this.generateAIPrompt('agent')
+      aiPrompt: promptText || this.generateConsolidatedPrompt(pages, 'agent')
     };
   }
 
-  showExportModal(dataUrl, promptText, payload) {
+  showExportModal(pages, promptText, payload) {
     if (this.activeExportModal) {
       this.activeExportModal.remove();
     }
 
-    const totalRaw = this.optimizedAnnotations.reduce((sum, o) => sum + (o.tokenSavings?.rawEstimate || 200), 0);
-    const totalPruned = this.optimizedAnnotations.reduce((sum, o) => sum + (o.tokenSavings?.prunedEstimate || 60), 0);
-    const savingsPercent = totalRaw > 0 ? Math.max(0, Math.round(((totalRaw - totalPruned) / totalRaw) * 100)) : 70;
+    const totalPoints = pages.reduce((acc, p) => acc + (p.annotations?.length || 0), 0);
+    const activePage = pages[pages.length - 1] || { dataUrl: '' };
 
     const modal = document.createElement('div');
     modal.className = 'ai-export-backdrop';
@@ -798,8 +974,8 @@ class AnnotatorUIManager {
       <div class="ai-export-dialog">
         <div class="ai-export-header">
           <div class="ai-export-title-row">
-            <span class="ai-export-pill">${this.annotations.length} annotation${this.annotations.length > 1 ? 's' : ''}</span>
-            <span class="ai-export-jev-pill">⚡ JEV Optimizer: -${savingsPercent}% tokens</span>
+            <span class="ai-export-pill">${totalPoints} annotation${totalPoints > 1 ? 's' : ''}</span>
+            ${pages.length > 1 ? `<span class="ai-export-step-pill">${pages.length} étapes de navigation</span>` : ''}
             <h3 class="ai-export-title">Annotations Prêtes pour l'IA</h3>
           </div>
           <button class="ai-export-close-btn" id="ai-modal-close" title="Fermer (Échap)">✕</button>
@@ -807,15 +983,15 @@ class AnnotatorUIManager {
 
         <div class="ai-export-body">
           <div class="ai-export-preview-container">
-            <img class="ai-export-thumbnail" src="${dataUrl}" alt="Aperçu capture annotée" />
+            <img class="ai-export-thumbnail" id="ai-export-thumb" src="${activePage.dataUrl}" alt="Aperçu capture annotée" />
             <div class="ai-export-preview-overlay">
               <span class="ai-export-preview-tag">✓ Capture avec flèches & indicateurs</span>
             </div>
           </div>
 
           <div class="ai-export-format-selector">
-            <button class="ai-format-tab ${this.currentExportFormat === 'agent' ? 'active' : ''}" data-format="agent">🤖 Agent IA (Distillé)</button>
-            <button class="ai-format-tab ${this.currentExportFormat === 'github' ? 'active' : ''}" data-format="github">🐙 GitHub / Linear Issue</button>
+            <button class="ai-format-tab ${this.currentExportFormat === 'agent' ? 'active' : ''}" data-format="agent">🤖 Agent IA</button>
+            <button class="ai-format-tab ${this.currentExportFormat === 'github' ? 'active' : ''}" data-format="github">🐙 GitHub Issue</button>
             <button class="ai-format-tab ${this.currentExportFormat === 'json' ? 'active' : ''}" data-format="json">📊 JSON Brut</button>
           </div>
 
@@ -838,7 +1014,7 @@ class AnnotatorUIManager {
               </svg>
               <div class="ai-action-text-group">
                 <span class="ai-action-main-text">Copier le prompt IA</span>
-                <span class="ai-action-sub-text">Markdown distillé JEV</span>
+                <span class="ai-action-sub-text">Format structuré</span>
               </div>
             </button>
           </div>
@@ -870,7 +1046,7 @@ class AnnotatorUIManager {
 
         <div class="ai-export-footer">
           <button class="ai-btn-footer-link" id="ai-btn-resume">Continuer d'annoter</button>
-          <button class="ai-btn-footer-danger" id="ai-btn-quit-all">Quitter l'annotateur</button>
+          <button class="ai-btn-footer-danger" id="ai-btn-quit-all">Terminer la session</button>
         </div>
       </div>
     `;
@@ -890,7 +1066,7 @@ class AnnotatorUIManager {
         formatTabs.forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         this.currentExportFormat = tab.getAttribute('data-format');
-        const newPrompt = this.generateAIPrompt(this.currentExportFormat);
+        const newPrompt = this.generateConsolidatedPrompt(pages, this.currentExportFormat);
         promptPre.textContent = newPrompt;
       });
     });
@@ -902,12 +1078,12 @@ class AnnotatorUIManager {
       });
     });
 
-    copyImgBtn.addEventListener('click', () => this.copyImageToClipboard(dataUrl, copyImgBtn));
+    copyImgBtn.addEventListener('click', () => this.copyImageToClipboard(activePage.dataUrl, copyImgBtn));
     copyPromptBtn.addEventListener('click', () => {
-      const activePrompt = this.generateAIPrompt(this.currentExportFormat);
+      const activePrompt = this.generateConsolidatedPrompt(pages, this.currentExportFormat);
       this.copyPromptToClipboard(activePrompt, copyPromptBtn);
     });
-    dlPngBtn.addEventListener('click', () => this.downloadPNG(dataUrl));
+    dlPngBtn.addEventListener('click', () => this.downloadPNG(activePage.dataUrl));
     dlJsonBtn.addEventListener('click', () => this.downloadJSON(payload));
 
     const closeModal = () => {
@@ -931,7 +1107,6 @@ class AnnotatorUIManager {
   }
 
   async copyImageToClipboard(dataUrl, btn) {
-    // 1. Try Offscreen API via service worker for zero-friction
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       try {
         const res = await chrome.runtime.sendMessage({
@@ -947,7 +1122,6 @@ class AnnotatorUIManager {
       } catch (_) {}
     }
 
-    // 2. Direct navigator.clipboard fallback
     const nav = (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) ? window.navigator : (typeof navigator !== 'undefined' ? navigator : null);
     try {
       const res = await fetch(dataUrl);
@@ -971,7 +1145,6 @@ class AnnotatorUIManager {
   }
 
   async copyPromptToClipboard(promptText, btn) {
-    // 1. Try Offscreen API
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       try {
         const res = await chrome.runtime.sendMessage({
@@ -987,7 +1160,6 @@ class AnnotatorUIManager {
       } catch (_) {}
     }
 
-    // 2. Direct fallback
     const nav = (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) ? window.navigator : (typeof navigator !== 'undefined' ? navigator : null);
     try {
       if (nav && nav.clipboard && nav.clipboard.writeText) {

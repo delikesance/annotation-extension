@@ -1,7 +1,8 @@
 /**
  * Service Worker (Background script - Manifest V3)
- * Handles extension activation, screenshot capture via Chrome API,
- * zero-friction clipboard proxy via Offscreen API, and file downloads.
+ * Handles extension activation, multi-page session persistence across navigations,
+ * screenshot capture via Chrome API, zero-friction clipboard proxy via Offscreen API,
+ * and file downloads.
  */
 
 let creatingOffscreenDocument = null;
@@ -36,49 +37,72 @@ async function hasOffscreenDocument(path) {
   return false;
 }
 
+// Inject scripts into a tab
+async function injectAnnotatorScripts(tabId) {
+  try {
+    await chrome.scripting.insertCSS({
+      target: { tabId },
+      files: ['content/styles.css']
+    });
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [
+        'content/selector-generator.js',
+        'content/dom-freeze.js',
+        'content/ui-manager.js',
+        'content/content-script.js'
+      ]
+    });
+    return true;
+  } catch (err) {
+    console.warn('[AI Web Annotator] Injection error:', err);
+    return false;
+  }
+}
+
 // Toggle annotator when extension icon is clicked
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id) return;
 
-  // Check for restricted URLs (chrome://, edge://, etc.)
   if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:'))) {
     console.warn('[AI Web Annotator] Cannot run on restricted browser pages.');
     return;
   }
 
   try {
-    // Try sending message to existing content script
     await chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_ANNOTATOR' });
   } catch (err) {
-    // Content script not loaded yet in this tab, inject dynamically
-    console.log('[AI Web Annotator] Injecting content scripts into tab:', tab.id);
-    try {
-      await chrome.scripting.insertCSS({
-        target: { tabId: tab.id },
-        files: ['content/styles.css']
-      });
-
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: [
-          'content/selector-generator.js',
-          'content/dom-freeze.js',
-          'content/jev-optimizer.js',
-          'content/ui-manager.js',
-          'content/content-script.js'
-        ]
-      });
-
-      // Send toggle message after injection
+    const ok = await injectAnnotatorScripts(tab.id);
+    if (ok) {
       setTimeout(() => {
-        chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_ANNOTATOR' }).catch((e) => {
-          console.error('[AI Web Annotator] Failed to toggle after injection:', e);
-        });
+        chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_ANNOTATOR' }).catch(() => {});
       }, 50);
-    } catch (injectErr) {
-      console.error('[AI Web Annotator] Failed to inject scripts:', injectErr);
     }
   }
+});
+
+// Auto-restore multi-page session on tab navigation
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !tab || !tab.url) return;
+  if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:')) return;
+
+  try {
+    const stored = await chrome.storage.local.get(['ai_web_annotator_session']);
+    const session = stored.ai_web_annotator_session;
+
+    if (session && session.activeTabId === tabId && session.isActive) {
+      const ok = await injectAnnotatorScripts(tabId);
+      if (ok) {
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, {
+            action: 'RESTORE_SESSION',
+            session: session
+          }).catch(() => {});
+        }, 100);
+      }
+    }
+  } catch (_) {}
 });
 
 // Handle messages from content script
@@ -93,7 +117,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.error('[AI Web Annotator] Capture failed:', error);
         sendResponse({ success: false, error: error.message });
       });
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (message.action === 'COPY_TO_CLIPBOARD') {

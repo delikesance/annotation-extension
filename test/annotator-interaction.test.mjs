@@ -62,12 +62,10 @@ function createMockEnvironment() {
   global.document = window.document;
   global.chrome = window.chrome;
 
-  const JevOptimizer = require('../src/content/jev-optimizer.js');
   const SelectorGenerator = require('../src/content/selector-generator.js');
   const DOMFreezeManager = require('../src/content/dom-freeze.js');
   const AnnotatorUIManager = require('../src/content/ui-manager.js');
 
-  window.JevOptimizer = JevOptimizer;
   window.SelectorGenerator = SelectorGenerator;
   window.DOMFreeze = new DOMFreezeManager();
   window.AnnotatorUI = new AnnotatorUIManager();
