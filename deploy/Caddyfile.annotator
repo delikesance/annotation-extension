@@ -1,0 +1,13 @@
+# Add to /etc/caddy/Caddyfile (then: sudo systemctl reload caddy) and create the DNS record
+#   annotator.delikesance.cloud  A  <server IP>
+annotator.delikesance.cloud {
+    encode zstd gzip
+    request_body {
+        max_size 9MB
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+    }
+    reverse_proxy 127.0.0.1:4180
+}

@@ -5,9 +5,14 @@
  * and file downloads.
  */
 
-import { uploadPng, setExpiration, checkAccess } from './s3.js';
+import { uploadPng, setExpiration, checkAccess, dataUrlToBytes } from './s3.js';
 
 const HOSTING_KEY = 'image_hosting';
+// Bundled, zero-config hosting: our own gateway (see server/gateway.mjs). No secret ships in the extension:
+// the server validates, rate-limits and expires everything. `gateway_url` in storage overrides it (dev/tests).
+export const DEFAULT_GATEWAY_URL = 'https://annotator.delikesance.cloud';
+const GATEWAY_ENABLED_KEY = 'gateway_enabled';
+const GATEWAY_URL_KEY = 'gateway_url';
 let creatingOffscreenDocument = null;
 
 async function setupOffscreenDocument(path) {
@@ -59,6 +64,26 @@ export function normalizeHostingConfig(c) {
   if (!/^https?:\/\//.test(endpoint) || !/^https?:\/\//.test(publicBaseUrl)) return null;
   if (!cfg.bucket || !cfg.accessKeyId || !cfg.secretAccessKey) return null;
   return cfg;
+}
+
+async function getGateway() {
+  try {
+    const stored = await chrome.storage.local.get([GATEWAY_ENABLED_KEY, GATEWAY_URL_KEY]);
+    if (stored && stored[GATEWAY_ENABLED_KEY] === false) return null;
+    const url = String((stored && stored[GATEWAY_URL_KEY]) || DEFAULT_GATEWAY_URL).replace(/\/+$/, '');
+    return /^https?:\/\//.test(url) ? url : null;
+  } catch (_) {
+    return DEFAULT_GATEWAY_URL;
+  }
+}
+
+async function uploadToGateway(base, page) {
+  const bytes = dataUrlToBytes(page.dataUrl);
+  const res = await fetch(`${base}/v1/upload?name=ecran-${page.stepIndex}`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: bytes });
+  let body = null;
+  try { body = await res.json(); } catch (_) {}
+  if (!res.ok || !body || !body.url) throw new Error((body && body.error) || `Serveur d'images indisponible (HTTP ${res.status})`);
+  return body;
 }
 
 async function getHostingConfig() {
@@ -335,7 +360,18 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
   }
 
   if (message.action === 'HOSTING_STATUS') {
-    getHostingConfig().then((cfg) => sendResponse({ configured: Boolean(cfg), expireDays: cfg ? cfg.expireDays : null }));
+    (async () => {
+      const cfg = await getHostingConfig();
+      if (cfg) return sendResponse({ configured: true, mode: 's3', expireDays: cfg.expireDays });
+      const gateway = await getGateway();
+      if (gateway) return sendResponse({ configured: true, mode: 'gateway', expireDays: 7, host: new URL(gateway).host });
+      sendResponse({ configured: false, mode: 'off', expireDays: null });
+    })();
+    return true;
+  }
+
+  if (message.action === 'HOSTING_TOGGLE') {
+    chrome.storage.local.set({ [GATEWAY_ENABLED_KEY]: Boolean(message.enabled) }).then(() => sendResponse({ success: true }));
     return true;
   }
 
@@ -368,14 +404,22 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 
   if (message.action === 'HOSTING_UPLOAD') {
     (async () => {
-      const cfg = await getHostingConfig();
-      if (!cfg) return sendResponse({ success: false, error: 'Hébergement non configuré.' });
       try {
+        const cfg = await getHostingConfig();
         const urls = {};
-        for (const page of message.pages || []) {
-          urls[page.stepIndex] = await uploadPng(cfg, page.dataUrl, `ecran-${page.stepIndex}`);
+        if (cfg) {
+          for (const page of message.pages || []) urls[page.stepIndex] = await uploadPng(cfg, page.dataUrl, `ecran-${page.stepIndex}`);
+          return sendResponse({ success: true, urls, expireDays: cfg.expireDays });
         }
-        sendResponse({ success: true, urls, expireDays: cfg.expireDays });
+        const gateway = await getGateway();
+        if (!gateway) return sendResponse({ success: false, error: 'Hébergement désactivé.' });
+        let ttl = 7;
+        for (const page of message.pages || []) {
+          const out = await uploadToGateway(gateway, page);
+          urls[page.stepIndex] = out.url;
+          ttl = out.ttlDays || ttl;
+        }
+        sendResponse({ success: true, urls, expireDays: ttl });
       } catch (error) {
         sendResponse({ success: false, error: error.message });
       }

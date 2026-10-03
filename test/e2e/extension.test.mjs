@@ -379,7 +379,7 @@ test('17. screenshots are uploaded to the S3-compatible bucket (verified SigV4) 
     await env.page.goto(env.url, { waitUntil: 'load' });
     await env.injectAndToggle();
     await panel.locator('#status-text', { hasText: /Navigation libre|Mode annotation/ }).waitFor();
-    await panel.evaluate(() => { document.getElementById('hosting').open = true; });
+    await panel.evaluate(() => { document.getElementById('hosting').open = true; document.getElementById('hosting-advanced').open = true; });
     await panel.fill('#h-endpoint', s3.endpoint);
     await panel.fill('#h-bucket', s3.bucket);
     await panel.fill('#h-key', s3.accessKeyId);
@@ -389,7 +389,7 @@ test('17. screenshots are uploaded to the S3-compatible bucket (verified SigV4) 
     await panel.click('#h-save');
     await panel.locator('#h-result', { hasText: 'Accès vérifié' }).waitFor({ timeout: 10000 });
     assert.match(s3.getLifecycle(), /<Days>5<\/Days>/, 'expiry rule was installed on the bucket');
-    assert.match(await panelText('#hosting-state'), /actif \(5 j\)/);
+    assert.match(await panelText("#hosting-state"), /stockage perso \(5 j\)/);
 
     // annotate and export
     if ((await panel.locator('#status-text').innerText()) !== 'Mode annotation') await panel.click('#btn-annotate');
@@ -437,4 +437,63 @@ test('17. screenshots are uploaded to the S3-compatible bucket (verified SigV4) 
   } finally {
     await s3.close();
   }
+});
+
+test('18. plug and play: without any configuration the screenshots go to the bundled gateway and links appear in every export; switching it off keeps exports link-free', async () => {
+  const fs = await import('node:fs');
+  await env.sw.evaluate(() => chrome.storage.local.remove(['image_hosting']));
+  await env.page.goto(env.url, { waitUntil: 'load' });
+  await env.injectAndToggle();
+  await panel.locator('#status-text', { hasText: /Navigation libre|Mode annotation/ }).waitFor();
+  await panel.evaluate(() => { document.getElementById('hosting').open = true; });
+  assert.match(await panelText('#hosting-state'), /actif \(7 j\)/);
+  assert.equal(await panel.locator('#h-gateway').isChecked(), true, 'on by default');
+
+  if ((await panel.locator('#status-text').innerText()) !== 'Mode annotation') await panel.click('#btn-annotate');
+  await env.page.hover('#cta');
+  await env.page.click('#cta');
+  await panel.locator('.editor textarea').fill('Le bouton ne réagit pas au clic');
+  await panel.click('#editor-save');
+  await panel.locator('.item', { hasText: 'ne réagit pas' }).waitFor();
+  const stored = () => fs.readdirSync(env.gatewayDir).length;
+  const before = stored();
+  await panel.click('#btn-export');
+  await panel.locator('#hosting-line', { hasText: 'Captures hébergées' }).waitFor({ timeout: 15000 });
+  assert.equal(stored(), before + 1, 'one screenshot reached the gateway');
+
+  await panel.click('#btn-copy');
+  await panel.locator('#btn-copy', { hasText: 'Copié' }).waitFor();
+  const agent = await panel.evaluate(() => navigator.clipboard.readText());
+  const link = /(http:\/\/127\.0\.0\.1:\d+\/i\/[0-9a-f]{36}\/ecran-1\.png)/.exec(agent)?.[1];
+  assert.ok(link, 'the prompt contains the hosted image link');
+  const img = await fetch(link);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  const bytes = Buffer.from(await img.arrayBuffer());
+  assert.deepEqual([...bytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+  assert.ok(bytes.length > 3000, 'the real screenshot is served');
+
+  await panel.click('.dest[data-format="github"]');
+  await panel.click('#btn-copy');
+  await panel.locator('#btn-copy', { hasText: 'Copié' }).waitFor();
+  assert.ok((await panel.evaluate(() => navigator.clipboard.readText())).includes(`![Écran 1](${link})`));
+
+  // back to the list and switch the hosting off
+  await panel.click('#btn-back');
+  await panel.evaluate(() => { document.getElementById('hosting').open = true; });
+  await panel.uncheck('#h-gateway');
+  await panel.locator('#hosting-state', { hasText: 'désactivé' }).waitFor();
+  const afterOff = stored();
+  await panel.click('#btn-export');
+  await panel.locator('#view-export').waitFor({ state: 'visible' });
+  await env.page.waitForTimeout(800);
+  assert.equal(stored(), afterOff, 'nothing is uploaded when hosting is off');
+  assert.equal(await panel.locator('#hosting-line').isHidden(), true);
+  await panel.click('#btn-copy');
+  await panel.locator('#btn-copy', { hasText: 'Copié' }).waitFor();
+  assert.ok(!(await panel.evaluate(() => navigator.clipboard.readText())).includes('/i/'), 'no image link when off');
+
+  await panel.click('#btn-quit-all');
+  await panel.locator('#status-text', { hasText: 'Inactif' }).waitFor();
+  await env.sw.evaluate(() => chrome.storage.local.set({ gateway_enabled: true }));
 });

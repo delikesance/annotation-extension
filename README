@@ -92,10 +92,24 @@ TESTING
 
 IMAGE HOSTING
 
-    Screenshots can be uploaded to your own S3-compatible storage so the
-    prompt, the GitHub issue and the JSON carry image links the AI can
-    open. Works with Garage, MinIO, Cloudflare R2 or any S3 server
-    (path-style, AWS Signature V4).
+    Plug and play: the extension hosts screenshots on the bundled gateway
+    (https://annotator.delikesance.cloud, see server/gateway.mjs) with no
+    configuration, so the prompt, the GitHub issue and the JSON carry
+    image links the AI can open. No secret ships in the extension: the
+    server only accepts PNG files (validated), at most 8 MB, rate-limited
+    per IP, with a daily byte quota and a disk quota; files get an
+    unguessable URL, are served with nosniff/sandbox headers and are
+    deleted after 7 days. It can be switched off in the side panel.
+
+    Deploy the gateway on the server:
+
+        docker compose -f compose.gateway.yaml up -d --build
+        # add deploy/Caddyfile.annotator to /etc/caddy/Caddyfile, create the
+        # DNS record annotator.delikesance.cloud, then reload Caddy
+
+    Advanced: a personal S3-compatible storage replaces the gateway.
+    Works with Garage, MinIO, Cloudflare R2 or any S3 server (path-style,
+    AWS Signature V4).
 
     Self-hosted example with Garage:
 

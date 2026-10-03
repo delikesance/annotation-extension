@@ -161,7 +161,12 @@ button:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2
 .hosting { margin: 0 12px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .hosting summary { padding: 10px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .hosting-state { font-weight: 500; color: var(--muted); margin-left: 6px; }
-.hosting-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 6px; }
+.hosting-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.hosting-form { display: flex; flex-direction: column; gap: 6px; padding: 0 0 4px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 18px; }
+.check input { margin-top: 2px; width: 16px; height: 16px; accent-color: var(--accent); }
+.hosting-advanced { border-top: 1px solid var(--line); padding-top: 4px; }
+.hosting-advanced summary { padding: 8px 0; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; }
 .hosting-help { margin: 0 0 4px; font-size: 12px; line-height: 17px; color: var(--muted); }
 .h-input { height: 36px; padding: 0 10px; }
 .hosting-actions { display: flex; justify-content: space-between; margin-top: 6px; }

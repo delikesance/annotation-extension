@@ -4,6 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { execSync } from 'node:child_process';
 import { chromium } from 'playwright';
+import { createGateway } from '../../../server/gateway.mjs';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..');
 
@@ -66,6 +67,13 @@ export async function startExtension() {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}/`;
 
+  // The bundled hosting points to our server; tests run against a real gateway instance on localhost.
+  const gatewayDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-annotator-gateway-'));
+  const gateway = createGateway({ dataDir: gatewayDir, ipPer10Min: 1000, ipPerDay: 10000 });
+  await new Promise((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
+  const gatewayUrl = `http://127.0.0.1:${gateway.server.address().port}`;
+  gateway.cfg.publicBaseUrl = gatewayUrl;
+
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-annotator-profile-'));
   const ctx = await chromium.launchPersistentContext(profile, {
     channel: 'chromium',
@@ -79,6 +87,7 @@ export async function startExtension() {
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);
 
   // Record what the extension asks Chrome to do with the side panel and downloads.
+  await sw.evaluate((u) => chrome.storage.local.set({ gateway_url: u }), gatewayUrl);
   await sw.evaluate(() => {
     globalThis.__sidePanel = { open: [], setOptions: [] };
     const sp = chrome.sidePanel;
@@ -121,9 +130,11 @@ export async function startExtension() {
   async function close() {
     await ctx.close().catch(() => {});
     await new Promise((r) => server.close(r));
+    gateway.server.close();
+    fs.rmSync(gatewayDir, { recursive: true, force: true });
     fs.rmSync(extDir, { recursive: true, force: true });
     fs.rmSync(profile, { recursive: true, force: true });
   }
 
-  return { ctx, sw, extId, page, url, tabId, injectAndToggle, openPanel, swState, storedSession, close };
+  return { ctx, sw, extId, page, url, tabId, gateway, gatewayUrl, gatewayDir, injectAndToggle, openPanel, swState, storedSession, close };
 }

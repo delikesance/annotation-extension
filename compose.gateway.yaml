@@ -1,0 +1,27 @@
+# Screenshot gateway for the extension's bundled hosting.
+#   docker compose -f compose.gateway.yaml up -d --build
+# Listens on 127.0.0.1:4180 only: Caddy (deploy/Caddyfile.annotator) is the public entry point.
+services:
+  annotator-gateway:
+    build: ./server
+    container_name: annotator-gateway
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4180:4180"
+    environment:
+      PUBLIC_BASE_URL: https://annotator.delikesance.cloud
+      TRUST_PROXY: "1"        # only Caddy can reach the port, so its X-Forwarded-For hop is trustworthy
+      TTL_DAYS: "7"
+      MAX_BYTES: "8388608"
+      IP_PER_10MIN: "40"
+      IP_PER_DAY: "400"
+      DAILY_BYTES: "3221225472"
+      DISK_QUOTA_BYTES: "8589934592"
+    volumes:
+      - gateway-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+volumes:
+  gateway-data:

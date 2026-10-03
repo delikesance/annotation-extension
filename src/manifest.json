@@ -28,7 +28,8 @@
     "sidePanel"
   ],
   "host_permissions": [
-    "https://git.delikesance.cloud/*"
+    "https://git.delikesance.cloud/*",
+    "https://annotator.delikesance.cloud/*"
   ],
   "optional_host_permissions": [
     "https://*/*"

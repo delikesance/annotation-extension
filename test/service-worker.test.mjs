@@ -102,7 +102,8 @@ test('image hosting: setup verifies credentials, sets expiry and saves; upload r
   chrome.storage.local.set = async (o) => Object.assign(stored, o);
   chrome.storage.local.remove = async (keys) => keys.forEach((k) => delete stored[k]);
 
-  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: false, expireDays: null });
+  stored.gateway_enabled = false; // only the personal S3 storage is under test here
+  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: false, mode: 'off', expireDays: null });
   const bad = await message({ action: 'HOSTING_SETUP', config: { endpoint: s3.endpoint, bucket: s3.bucket, accessKeyId: s3.accessKeyId, secretAccessKey: 'wrong', publicBaseUrl: s3.publicBaseUrl } }, {});
   assert.equal(bad.success, false);
   assert.match(bad.error, /403/);
@@ -112,7 +113,7 @@ test('image hosting: setup verifies credentials, sets expiry and saves; upload r
   assert.deepEqual(await message({ action: 'HOSTING_SETUP', config }, {}), { success: true, expirationWarning: null });
   assert.match(s3.getLifecycle(), /<Days>3<\/Days>/);
   assert.match(s3.getLifecycle(), /<Prefix>annotations\/<\/Prefix>/);
-  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: true, expireDays: 3 });
+  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: true, mode: 's3', expireDays: 3 });
 
   const png = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]).toString('base64');
   const up = await message({ action: 'HOSTING_UPLOAD', pages: [{ stepIndex: 1, dataUrl: png }, { stepIndex: 2, dataUrl: png }] }, {});
@@ -138,4 +139,59 @@ test('image hosting: a failing bucket reports the error instead of throwing', as
   assert.equal(res.success, false);
   assert.match(res.error, /404/);
   await s3.close();
+});
+
+import { createGateway } from '../server/gateway.mjs';
+import { makePng } from './helpers/png.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+test('bundled hosting: with no configuration pages are uploaded to the gateway; the toggle and an S3 config change the mode', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-sw-'));
+  const gw = createGateway({ dataDir, ipPer10Min: 100 });
+  await new Promise((r) => gw.server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${gw.server.address().port}`;
+  gw.cfg.publicBaseUrl = base;
+  const stored = { gateway_url: base };
+  chrome.storage.local.get = async (keys) => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).filter((k) => k in stored).map((k) => [k, stored[k]]));
+  chrome.storage.local.set = async (o) => Object.assign(stored, o);
+  chrome.storage.local.remove = async (keys) => keys.forEach((k) => delete stored[k]);
+
+  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: true, mode: 'gateway', expireDays: 7, host: new URL(base).host });
+  const png = 'data:image/png;base64,' + makePng(6, 6).toString('base64');
+  const up = await message({ action: 'HOSTING_UPLOAD', pages: [{ stepIndex: 1, dataUrl: png }, { stepIndex: 2, dataUrl: png }] }, {});
+  assert.equal(up.success, true);
+  assert.equal(up.expireDays, 7);
+  assert.match(up.urls[1], new RegExp(`^${base}/i/[0-9a-f]{36}/ecran-1\\.png$`));
+  assert.match(up.urls[2], /ecran-2\.png$/);
+  assert.equal((await fetch(up.urls[1])).status, 200);
+
+  await message({ action: 'HOSTING_TOGGLE', enabled: false }, {});
+  assert.deepEqual(await message({ action: 'HOSTING_STATUS' }, {}), { configured: false, mode: 'off', expireDays: null });
+  assert.equal((await message({ action: 'HOSTING_UPLOAD', pages: [{ stepIndex: 1, dataUrl: png }] }, {})).success, false);
+  await message({ action: 'HOSTING_TOGGLE', enabled: true }, {});
+
+  // a personal S3 config wins over the bundled gateway
+  stored.image_hosting = { endpoint: 'http://127.0.0.1:1', bucket: 'b', accessKeyId: 'a', secretAccessKey: 's', publicBaseUrl: 'http://127.0.0.1:1/p' };
+  assert.equal((await message({ action: 'HOSTING_STATUS' }, {})).mode, 's3');
+  delete stored.image_hosting;
+
+  // an invalid image is refused by the server and reported
+  const bad = await message({ action: 'HOSTING_UPLOAD', pages: [{ stepIndex: 1, dataUrl: 'data:image/png;base64,' + Buffer.from('<html>'.padEnd(80)).toString('base64') }] }, {});
+  assert.equal(bad.success, false);
+  assert.match(bad.error, /refusée/);
+  // an unreachable server is reported, not thrown
+  stored.gateway_url = 'http://127.0.0.1:1';
+  assert.equal((await message({ action: 'HOSTING_UPLOAD', pages: [{ stepIndex: 1, dataUrl: png }] }, {})).success, false);
+  gw.server.close();
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('the bundled gateway lives on a delikesance.cloud sub-domain and the manifest grants access to exactly that host', async () => {
+  const { DEFAULT_GATEWAY_URL } = await import('../src/background/service-worker.js?sw-test');
+  const host = new URL(DEFAULT_GATEWAY_URL).host;
+  assert.match(host, /\.delikesance\.cloud$/);
+  const manifest = JSON.parse(fs.readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
+  assert.ok(manifest.host_permissions.includes(`https://${host}/*`));
 });

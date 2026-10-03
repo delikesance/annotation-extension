@@ -373,3 +373,22 @@ test('image hosting settings: a refused permission or a failing check is reporte
   assert.match(failing.d.getElementById('h-result').textContent, /Accès refusé \(HTTP 403\)/);
   assert.ok(failing.d.getElementById('h-result').classList.contains('is-error'));
 });
+
+test('hosting toggle: the bundled gateway is on by default and can be switched off from the panel', async () => {
+  const { d, toRuntime } = mountPanel({ runtime: (m) => (m.action === 'HOSTING_STATUS' ? { configured: true, mode: 'gateway', expireDays: 7, host: 'annotator.delikesance.cloud' } : undefined) });
+  await wait(30);
+  assert.equal(d.getElementById('h-gateway').checked, true);
+  assert.match(d.getElementById('hosting-state').textContent, /actif \(7 j\)/);
+  assert.equal(d.getElementById('h-gateway-host').textContent, 'annotator.delikesance.cloud');
+  d.getElementById('h-gateway').checked = false;
+  d.getElementById('h-gateway').dispatchEvent(new d.defaultView.Event('change', { bubbles: true }));
+  await wait(20);
+  same(toRuntime.find(m => m.action === 'HOSTING_TOGGLE'), { action: 'HOSTING_TOGGLE', enabled: false });
+});
+
+test('hosting toggle: with a personal S3 storage the default switch is locked and the state says so', async () => {
+  const { d } = mountPanel({ runtime: (m) => (m.action === 'HOSTING_STATUS' ? { configured: true, mode: 's3', expireDays: 3 } : undefined) });
+  await wait(30);
+  assert.equal(d.getElementById('h-gateway').disabled, true);
+  assert.match(d.getElementById('hosting-state').textContent, /stockage perso \(3 j\)/);
+});

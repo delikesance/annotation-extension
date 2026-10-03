@@ -39,28 +39,37 @@
       <div class="list" id="list" aria-label="Annotations"></div>
       <details class="hosting" id="hosting">
         <summary>Hébergement des images <span id="hosting-state" class="hosting-state"></span></summary>
-        <form class="hosting-body" id="hosting-form" autocomplete="off">
-          <p class="hosting-help">Les captures sont envoyées vers votre bucket S3 (MinIO, Garage, R2…) sous une adresse non devinable, puis les liens sont ajoutés au prompt, à l'issue GitHub et au JSON.</p>
-          <label class="eyebrow" for="h-endpoint">Endpoint S3</label>
-          <input class="field h-input" id="h-endpoint" type="url" placeholder="https://s3.exemple.cloud (MinIO, Garage, R2…)">
-          <label class="eyebrow" for="h-region">Région</label>
-          <input class="field h-input" id="h-region" type="text" value="us-east-1" placeholder="us-east-1 (MinIO) · garage (Garage) · auto (R2)">
-          <label class="eyebrow" for="h-bucket">Bucket</label>
-          <input class="field h-input" id="h-bucket" type="text" placeholder="annotations">
-          <label class="eyebrow" for="h-key">Access key ID</label>
-          <input class="field h-input" id="h-key" type="text">
-          <label class="eyebrow" for="h-secret">Secret access key</label>
-          <input class="field h-input" id="h-secret" type="password" placeholder="Enregistré (masqué)">
-          <label class="eyebrow" for="h-public">URL publique (domaine du CDN)</label>
-          <input class="field h-input" id="h-public" type="url" placeholder="https://img.exemple.com">
-          <label class="eyebrow" for="h-days">Expiration des liens (jours)</label>
-          <input class="field h-input" id="h-days" type="number" min="1" max="365" value="7">
-          <div class="hosting-actions">
-            <button class="btn btn-small btn-ghost-danger" id="h-clear" type="button">Désactiver</button>
-            <button class="btn btn-small btn-accent" id="h-save" type="submit">Enregistrer et tester</button>
-          </div>
-          <div class="hosting-result" id="h-result" role="status" hidden></div>
-        </form>
+        <div class="hosting-body">
+          <label class="check" for="h-gateway">
+            <input type="checkbox" id="h-gateway" checked>
+            <span>Héberger les captures sur <strong id="h-gateway-host">annotator.delikesance.cloud</strong> : le prompt, l'issue GitHub et le JSON contiennent alors des liens (valables 7 jours, non devinables).</span>
+          </label>
+          <details class="hosting-advanced" id="hosting-advanced">
+            <summary>Stockage personnalisé (avancé)</summary>
+            <form class="hosting-form" id="hosting-form" autocomplete="off">
+              <p class="hosting-help">Remplace le serveur par défaut : vos captures vont dans votre bucket S3 (MinIO, Garage, R2…).</p>
+              <label class="eyebrow" for="h-endpoint">Endpoint S3</label>
+              <input class="field h-input" id="h-endpoint" type="url" placeholder="https://s3.exemple.cloud">
+              <label class="eyebrow" for="h-region">Région</label>
+              <input class="field h-input" id="h-region" type="text" value="us-east-1" placeholder="us-east-1 · garage · auto">
+              <label class="eyebrow" for="h-bucket">Bucket</label>
+              <input class="field h-input" id="h-bucket" type="text" placeholder="annotations">
+              <label class="eyebrow" for="h-key">Access key ID</label>
+              <input class="field h-input" id="h-key" type="text">
+              <label class="eyebrow" for="h-secret">Secret access key</label>
+              <input class="field h-input" id="h-secret" type="password" placeholder="Enregistré (masqué)">
+              <label class="eyebrow" for="h-public">URL publique (domaine du CDN)</label>
+              <input class="field h-input" id="h-public" type="url" placeholder="https://img.exemple.com">
+              <label class="eyebrow" for="h-days">Expiration des liens (jours)</label>
+              <input class="field h-input" id="h-days" type="number" min="1" max="365" value="7">
+              <div class="hosting-actions">
+                <button class="btn btn-small btn-ghost-danger" id="h-clear" type="button">Revenir au serveur par défaut</button>
+                <button class="btn btn-small btn-accent" id="h-save" type="submit">Enregistrer et tester</button>
+              </div>
+              <div class="hosting-result" id="h-result" role="status" hidden></div>
+            </form>
+          </details>
+        </div>
       </details>
       <footer class="rail-footer">
         <button class="btn btn-primary" id="btn-export" type="button">

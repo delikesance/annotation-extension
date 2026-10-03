@@ -368,7 +368,11 @@
   async function loadHostingState() {
     try {
       const status = await chrome.runtime.sendMessage({ action: 'HOSTING_STATUS' });
-      $('hosting-state').textContent = status && status.configured ? `actif (${status.expireDays} j)` : 'inactif';
+      const on = Boolean(status && status.configured);
+      $('hosting-state').textContent = !on ? 'désactivé' : status.mode === 's3' ? `stockage perso (${status.expireDays} j)` : `actif (${status.expireDays} j)`;
+      $('h-gateway').checked = !status || status.mode !== 'off';
+      $('h-gateway').disabled = Boolean(status && status.mode === 's3');
+      if (status && status.host) $('h-gateway-host').textContent = status.host;
     } catch (_) {}
   }
 
@@ -399,6 +403,11 @@
       result.classList.add('is-error');
       result.textContent = error.message;
     }
+    loadHostingState();
+  });
+
+  $('h-gateway').addEventListener('change', async () => {
+    await chrome.runtime.sendMessage({ action: 'HOSTING_TOGGLE', enabled: $('h-gateway').checked });
     loadHostingState();
   });
 
