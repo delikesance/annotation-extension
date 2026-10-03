@@ -276,25 +276,22 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
     return false;
   }
 
-  if (message.action === 'CHECK_UPDATES') {
-    checkForUpdates().then((updateInfo) => {
-      sendResponse({ success: true, update: updateInfo });
-    }).catch((err) => {
-      sendResponse({ success: false, error: err.message });
-    });
-    return true;
-  }
-
-  if (message.action === 'GET_UPDATE_INFO') {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(['available_update']).then((stored) => {
-        sendResponse({ success: true, update: stored.available_update || null });
-      }).catch((err) => {
+  if (message.action === 'CHECK_UPDATES' || message.action === 'GET_UPDATE_INFO') {
+    (async () => {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          const stored = await chrome.storage.local.get(['available_update']);
+          if (stored && stored.available_update && (Date.now() - (stored.available_update.checkedAt || 0) < 60000)) {
+            sendResponse({ success: true, update: stored.available_update });
+            return;
+          }
+        }
+        const updateInfo = await checkForUpdates();
+        sendResponse({ success: true, update: updateInfo });
+      } catch (err) {
         sendResponse({ success: false, error: err.message });
-      });
-    } else {
-      sendResponse({ success: true, update: null });
-    }
+      }
+    })();
     return true;
   }
 
