@@ -395,5 +395,72 @@ test('AnnotatorUIManager - displays update badge when update is available and op
   window.AnnotatorUI.deactivate();
 });
 
+test('AnnotatorUIManager - nextScreen() commits current screen, clears DOM, and continues numbering sequentially', async () => {
+  const env = createMockEnvironment();
+  const { window } = env;
+
+  const btn1 = window.document.getElementById('nav-link');
+  const btn2 = window.document.getElementById('cta-button');
+
+  btn1.getBoundingClientRect = () => ({ top: 10, left: 10, width: 80, height: 30, x: 10, y: 10, bottom: 40, right: 90 });
+  btn2.getBoundingClientRect = () => ({ top: 100, left: 10, width: 100, height: 40, x: 10, y: 100, bottom: 140, right: 110 });
+
+  window.AnnotatorUI.activate();
+
+  // Screen 1: Create Annotation #1
+  window.document.elementsFromPoint = () => [btn1, window.document.body];
+  btn1.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+  assert.equal(window.AnnotatorUI.selectedAnnotation.index, 1);
+  const ta1 = window.AnnotatorUI.activeCommentCard.querySelector('textarea');
+  ta1.value = 'Comment for Screen 1 Point 1';
+  window.AnnotatorUI.activeCommentCard.querySelector('#ai-modal-save').click();
+  assert.equal(window.AnnotatorUI.annotations.length, 1);
+
+  // Screen 1: Create Annotation #2
+  window.document.elementsFromPoint = () => [btn2, window.document.body];
+  btn2.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 110 }));
+  assert.equal(window.AnnotatorUI.selectedAnnotation.index, 2);
+  const ta2 = window.AnnotatorUI.activeCommentCard.querySelector('textarea');
+  ta2.value = 'Comment for Screen 1 Point 2';
+  window.AnnotatorUI.activeCommentCard.querySelector('#ai-modal-save').click();
+  assert.equal(window.AnnotatorUI.annotations.length, 2);
+
+  // Click "+ Écran Suivant"
+  await window.AnnotatorUI.nextScreen();
+
+  // Verify that Screen 1 was committed
+  assert.equal(window.AnnotatorUI.session.pages.length, 1, 'Screen 1 must be committed to session.pages');
+  assert.equal(window.AnnotatorUI.session.pages[0].annotations.length, 2, 'Screen 1 must have 2 annotations');
+  assert.equal(window.AnnotatorUI.annotations.length, 0, 'Current page annotations array must be cleared');
+  assert.equal(window.AnnotatorUI.isPaused, true, 'Should switch to pause/free navigation mode for next screen');
+
+  // Resume for Screen 2
+  window.AnnotatorUI.resume();
+
+  // Screen 2: Create Annotation (must be #3!)
+  window.document.elementsFromPoint = () => [btn1, window.document.body];
+  btn1.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+  assert.equal(window.AnnotatorUI.selectedAnnotation.index, 3, 'Next annotation must start at index 3!');
+
+  const ta3 = window.AnnotatorUI.activeCommentCard.querySelector('textarea');
+  ta3.value = 'Comment for Screen 2 Point 3';
+  window.AnnotatorUI.activeCommentCard.querySelector('#ai-modal-save').click();
+  assert.equal(window.AnnotatorUI.annotations.length, 1, 'Screen 2 has 1 active annotation');
+
+  // Finish and export
+  await window.AnnotatorUI.finishAndShowExportModal();
+
+  assert.ok(window.AnnotatorUI.lastExportData, 'Export data must exist');
+  assert.equal(window.AnnotatorUI.lastExportData.pages.length, 2, 'Total 2 screens must be exported');
+  assert.ok(window.AnnotatorUI.lastExportData.promptText.includes('Étape #1'), 'Prompt must contain Step 1');
+  assert.ok(window.AnnotatorUI.lastExportData.promptText.includes('Étape #2'), 'Prompt must contain Step 2');
+  assert.ok(window.AnnotatorUI.lastExportData.promptText.includes('[Point #1]'), 'Prompt must contain Point #1');
+  assert.ok(window.AnnotatorUI.lastExportData.promptText.includes('[Point #2]'), 'Prompt must contain Point #2');
+  assert.ok(window.AnnotatorUI.lastExportData.promptText.includes('[Point #3]'), 'Prompt must contain Point #3');
+
+  window.AnnotatorUI.deactivate();
+});
+
+
 
 

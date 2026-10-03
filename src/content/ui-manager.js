@@ -102,8 +102,15 @@ class AnnotatorUIManager {
         </svg>
         <span id="ai-btn-pause-text">Pause</span>
       </button>
-      <div class="ai-hud-shortcuts-hint" title="Raccourcis : P (Pause/Reprendre), Échap (Quitter), Ctrl+Entrée (Valider)">
-        <span>⚡ P / Ctrl+↵</span>
+      <button class="ai-hud-btn ai-hud-btn-next" id="ai-btn-next-screen" title="Valider cet écran et passer au suivant (Touche N)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+          <circle cx="12" cy="13" r="4"></circle>
+        </svg>
+        <span>Écran Suivant</span>
+      </button>
+      <div class="ai-hud-shortcuts-hint" title="Raccourcis : P (Pause/Reprendre), N (Écran Suivant), Échap (Quitter), Ctrl+Entrée (Valider)">
+        <span>⚡ P / N / Ctrl+↵</span>
       </div>
       <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Terminer et exporter les annotations (Ctrl+E)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -126,6 +133,7 @@ class AnnotatorUIManager {
     `;
 
     this.hud.querySelector('#ai-btn-pause').addEventListener('click', () => this.togglePause());
+    this.hud.querySelector('#ai-btn-next-screen').addEventListener('click', () => this.nextScreen());
     this.hud.querySelector('#ai-btn-export').addEventListener('click', () => this.finishAndShowExportModal());
     this.hud.querySelector('#ai-btn-cancel').addEventListener('click', () => this.deactivate());
 
@@ -303,10 +311,10 @@ class AnnotatorUIManager {
       : 0;
 
     const totalCount = previousCount + this.annotations.length;
-    const pageSteps = (this.session && this.session.pages) ? this.session.pages.length + 1 : 1;
+    const currentScreen = (this.session && this.session.pages) ? this.session.pages.length + 1 : 1;
 
-    if (pageSteps > 1) {
-      counter.textContent = `${totalCount} annotation${totalCount > 1 ? 's' : ''} (${pageSteps} pages)`;
+    if (currentScreen > 1) {
+      counter.textContent = `Écran #${currentScreen} (${totalCount} point${totalCount > 1 ? 's' : ''})`;
     } else {
       counter.textContent = `${totalCount} annotation${totalCount > 1 ? 's' : ''}`;
     }
@@ -384,6 +392,69 @@ class AnnotatorUIManager {
     this.updateHUDState();
     this.syncSessionToStorage();
     this.showToast('🎯 Mode Annotation réactivé : Cliquez sur un élément pour annoter.');
+  }
+
+  async nextScreen() {
+    if (this.annotations.length === 0) {
+      this.showToast('⚠️ Ajoutez au moins une annotation sur cet écran avant de passer au suivant.');
+      return;
+    }
+
+    if (this.activeCommentCard) {
+      this.closeCommentModal();
+    }
+
+    this.showToast('📸 Capture et validation de l\'écran...');
+
+    if (this.hud) this.hud.style.display = 'none';
+    if (this.highlightBox) this.highlightBox.style.display = 'none';
+
+    await new Promise(r => setTimeout(r, 120));
+
+    let screenDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const response = await chrome.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
+        if (response && response.success && response.dataUrl) {
+          screenDataUrl = response.dataUrl;
+        }
+      }
+    } catch (_) {}
+
+    if (this.hud) this.hud.style.display = 'flex';
+
+    if (!this.session.pages) {
+      this.session.pages = [];
+    }
+
+    const stepIndex = this.session.pages.length + 1;
+
+    this.session.pages.push({
+      stepIndex: stepIndex,
+      url: window.location.href,
+      title: document.title,
+      dataUrl: screenDataUrl,
+      annotations: this.annotations.map(a => ({
+        index: a.index,
+        comment: a.comment,
+        metadata: a.metadata || { element: { tag: a.element.tagName } }
+      }))
+    });
+
+    // Clear visual annotations on current screen
+    for (const ann of this.annotations) {
+      if (ann.badgeEl) ann.badgeEl.remove();
+      if (ann.boxEl) ann.boxEl.remove();
+      if (ann.arrowEl) ann.arrowEl.remove();
+    }
+    this.annotations = [];
+
+    // Switch to free navigation mode so user can scroll/click/navigate to next view
+    this.pause();
+
+    this.updateCounter();
+    this.syncSessionToStorage();
+    this.showToast(`📸 Écran #${stepIndex} validé ! Naviguez librement et reprenez (P) pour l'écran #${stepIndex + 1}.`);
   }
 
   updateHUDState() {
@@ -600,6 +671,13 @@ class AnnotatorUIManager {
     if ((e.key === 'p' || e.key === 'P') && !this.isEditingComment && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
       e.preventDefault();
       this.togglePause();
+      return;
+    }
+
+    // 'N' key validates current screen and prepares next screen
+    if ((e.key === 'n' || e.key === 'N') && !this.isEditingComment && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+      e.preventDefault();
+      this.nextScreen();
       return;
     }
 

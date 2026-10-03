@@ -169,6 +169,46 @@ html.ai-annotator-page-frozen * {
   transform: translateY(0);
 }
 
+.ai-hud-btn-pause {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+}
+
+.ai-hud-btn-pause:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.ai-hud-btn-pause.is-paused {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fef08a;
+}
+
+.ai-hud-btn-pause.is-paused:hover {
+  background: rgba(245, 158, 11, 0.3);
+  color: #ffffff;
+}
+
+.ai-hud-btn-next {
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  color: #c7d2fe;
+}
+
+.ai-hud-btn-next:hover {
+  background: rgba(99, 102, 241, 0.32);
+  border-color: rgba(129, 140, 248, 0.6);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.ai-hud-btn-next:active {
+  transform: translateY(0);
+}
+
 .ai-hud-btn-icon {
   background: transparent;
   border: none;
