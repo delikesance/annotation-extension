@@ -23,7 +23,8 @@
     "storage",
     "clipboardWrite",
     "offscreen",
-    "alarms"
+    "alarms",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://git.delikesance.cloud/*"

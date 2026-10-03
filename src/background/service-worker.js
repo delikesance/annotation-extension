@@ -37,6 +37,8 @@ async function hasOffscreenDocument(path) {
   return false;
 }
 
+const SIDE_PANEL_PATH = 'sidepanel/sidepanel.html';
+
 // Inject scripts into a tab
 async function injectAnnotatorScripts(tabId) {
   try {
@@ -69,6 +71,12 @@ if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
     if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:'))) {
       console.warn('[AI Web Annotator] Cannot run on restricted browser pages.');
       return;
+    }
+
+    // Open Chrome's side panel (the review rail) synchronously so the click's user gesture is kept.
+    if (chrome.sidePanel && chrome.sidePanel.open) {
+      chrome.sidePanel.setOptions({ tabId: tab.id, path: SIDE_PANEL_PATH, enabled: true }).catch(() => {});
+      chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
     }
 
     try {
@@ -293,6 +301,28 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       }
     })();
     return true;
+  }
+
+  if (message.action === 'OPEN_SIDE_PANEL') {
+    const tabId = sender.tab ? sender.tab.id : undefined;
+    if (tabId && chrome.sidePanel && chrome.sidePanel.open) {
+      chrome.sidePanel.setOptions({ tabId, path: SIDE_PANEL_PATH, enabled: true }).catch(() => {});
+      chrome.sidePanel.open({ tabId })
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
+    sendResponse({ success: false });
+    return false;
+  }
+
+  if (message.action === 'ANNOTATOR_STOPPED') {
+    const tabId = sender.tab ? sender.tab.id : undefined;
+    if (tabId && chrome.sidePanel && chrome.sidePanel.setOptions) {
+      chrome.sidePanel.setOptions({ tabId, enabled: false }).catch(() => {});
+    }
+    sendResponse({ success: true });
+    return false;
   }
 
   if (message.action === 'OPEN_URL' && message.url) {

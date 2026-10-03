@@ -1,0 +1,132 @@
+/* Side panel: the review rail, rendered by Chrome beside the page (so the page really resizes). */
+:root {
+  --paper: #F6F4EF;
+  --surface: #FFFFFF;
+  --ink: #1C1B19;
+  --muted: #5F5B54;
+  --line: #DDD8CE;
+  --line-strong: #CFC9BC;
+  --accent: #C9400F;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.rail { height: 100%; display: flex; flex-direction: column; }
+
+.rail-header {
+  padding: 18px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.rail-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.status.is-paused .dot { background: #8A867D; }
+.status.is-idle .dot { background: #B9B4A8; }
+.tools { display: flex; gap: 6px; }
+.counter { font-size: 13px; color: var(--muted); }
+
+.kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 16px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--muted);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+}
+.btn:hover { background: #F0EDE5; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-small { height: 32px; padding: 0 10px; font-size: 13px; }
+.btn-small.is-paused { background: var(--ink); border-color: var(--ink); color: #fff; }
+.btn-primary { height: 44px; background: var(--ink); border-color: var(--ink); color: #fff; }
+.btn-primary:hover { background: #3a3835; }
+.btn-primary .kbd { background: #3a3835; border-color: #55524d; color: #E4E2DC; }
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.icon-btn:hover { background: #F0EDE5; color: #9F1D12; }
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.item {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+}
+.item:hover { background: var(--surface); border-color: var(--line-strong); }
+.pin {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.item-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.type-tag { align-self: flex-start; font-size: 11px; font-weight: 600; line-height: 16px; padding: 2px 8px; border-radius: 999px; }
+.type-style { background: #E6EEFC; color: #1B4DA8; }
+.type-bug   { background: #FDE8E5; color: #9F1D12; }
+.type-text  { background: #ECEAE4; color: #4F4B44; }
+.item-text { font-size: 14px; line-height: 20px; word-break: break-word; }
+.item-text.is-empty { color: var(--muted); font-style: italic; }
+.item-sel { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note, .empty { font-size: 13px; line-height: 19px; color: var(--muted); }
+.note { padding: 8px 14px; font-size: 12px; }
+.empty { margin-top: 8px; padding: 16px 14px; border: 1px dashed var(--line-strong); border-radius: 10px; }
+
+.rail-footer { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

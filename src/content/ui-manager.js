@@ -115,7 +115,7 @@ class AnnotatorUIManager {
               <span id="ai-btn-pause-text">Pause</span>
               <span class="ai-kbd">P</span>
             </button>
-            <button class="ai-hud-btn-icon ai-hud-btn-minimize" id="ai-btn-minimize" aria-label="Réduire ou agrandir le panneau" title="Ouvrir / réduire le panneau">
+            <button class="ai-hud-btn-icon ai-hud-btn-minimize" id="ai-btn-minimize" aria-label="Ouvrir le panneau" title="Ouvrir le panneau">
               <svg class="ai-icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
               <span class="ai-open-label">Ouvrir</span>
             </button>
@@ -143,10 +143,7 @@ class AnnotatorUIManager {
     this.hud.querySelector('#ai-btn-next-screen').addEventListener('click', () => this.nextScreen());
     this.hud.querySelector('#ai-btn-export').addEventListener('click', () => this.finishAndShowExportModal());
     this.hud.querySelector('#ai-btn-cancel').addEventListener('click', () => this.deactivate());
-    this.hud.querySelector('#ai-btn-minimize').addEventListener('click', () => {
-      this.hud.classList.toggle('ai-hud-collapsed');
-      this.syncPageOffset();
-    });
+    this.hud.querySelector('#ai-btn-minimize').addEventListener('click', () => this.openRail());
 
     this.shadow.appendChild(this.hud);
     this.renderRail();
@@ -156,24 +153,63 @@ class AnnotatorUIManager {
   setHudVisible(visible) {
     if (!this.hud) return;
     this.hud.style.display = visible ? 'flex' : 'none';
-    this.syncPageOffset();
   }
 
-  /** While the rail is open, shrink the page so the rail sits to the right of it instead of covering it. */
-  syncPageOffset() {
-    const root = document.documentElement;
-    const open = this.hud && this.hud.style.display !== 'none'
-      && !this.hud.classList.contains('ai-hud-collapsed')
-      && this.host && this.host.style.display !== 'none';
-    if (open) {
-      root.style.setProperty('width', 'calc(100% - 340px)', 'important');
-    } else {
-      root.style.removeProperty('width');
+  /** Snapshot of the session for the side panel. */
+  buildRailState() {
+    const previousScreens = (this.session && this.session.pages) ? this.session.pages.length : 0;
+    const counter = this.shadow && this.shadow.getElementById('ai-counter');
+    return {
+      active: Boolean(this.isInspecting || this.isPaused),
+      isPaused: this.isPaused,
+      counterText: counter ? counter.textContent : '',
+      previousScreens,
+      annotations: this.annotations.map(a => ({
+        index: a.index,
+        type: a.type || 'style',
+        comment: a.comment || '',
+        selector: (a.metadata && a.metadata.element && a.metadata.element.cssSelector) || a.element.tagName.toLowerCase()
+      }))
+    };
+  }
+
+  broadcastRailState(overrides) {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    try {
+      const result = chrome.runtime.sendMessage({ action: 'RAIL_STATE', state: { ...this.buildRailState(), ...(overrides || {}) } });
+      if (result && result.catch) result.catch(() => {});
+    } catch (_) {}
+  }
+
+  /** Executes an action requested from the side panel. */
+  handleRailAction(op, index) {
+    if (op === 'pause') this.togglePause();
+    else if (op === 'next') this.nextScreen();
+    else if (op === 'export') this.finishAndShowExportModal();
+    else if (op === 'close') this.deactivate();
+    else if (op === 'open') {
+      const ann = this.annotations.find(a => a.index === index);
+      if (ann && this.isInspecting) {
+        this.selectedAnnotation = ann;
+        this.openCommentModal(ann);
+      }
     }
+  }
+
+  /** Asks the background to open Chrome's side panel; falls back to the in-page overlay rail. */
+  async openRail() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const res = await chrome.runtime.sendMessage({ action: 'OPEN_SIDE_PANEL' });
+        if (res && res.success) return;
+      }
+    } catch (_) {}
+    this.hud.classList.toggle('ai-hud-collapsed');
   }
 
   /** Rebuilds the annotation list shown in the rail. */
   renderRail() {
+    this.broadcastRailState();
     const list = this.hud && this.hud.querySelector('#ai-rail-list');
     if (!list) return;
 
@@ -616,13 +652,14 @@ class AnnotatorUIManager {
     if (this.host) {
       this.host.style.display = 'none';
     }
-    this.syncPageOffset();
 
     this.clearSessionStorage();
 
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage({ action: 'SET_BADGE', text: '' }).catch(() => {});
+      chrome.runtime.sendMessage({ action: 'ANNOTATOR_STOPPED' }).catch(() => {});
     }
+    this.broadcastRailState({ active: false });
   }
 
   onMouseMove(e) {

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Web Annotator</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <main class="rail" id="rail">
+    <header class="rail-header">
+      <div class="rail-title-row">
+        <div class="status" id="status">
+          <span class="dot"></span>
+          <span id="status-text">Annotation</span>
+        </div>
+        <div class="tools">
+          <button class="btn btn-small" id="btn-pause" type="button">
+            <span id="btn-pause-text">Pause</span><span class="kbd">P</span>
+          </button>
+          <button class="icon-btn" id="btn-close" type="button" aria-label="Quitter le mode annotation" title="Quitter le mode annotation (Échap)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="counter" id="counter">0 annotation</div>
+    </header>
+
+    <section class="list" id="list" aria-label="Annotations"></section>
+
+    <footer class="rail-footer">
+      <button class="btn btn-primary" id="btn-export" type="button">
+        <span>Exporter la session</span><span class="kbd">Ctrl E</span>
+      </button>
+      <button class="btn" id="btn-next" type="button">
+        <span>Écran suivant</span><span class="kbd">N</span>
+      </button>
+    </footer>
+  </main>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

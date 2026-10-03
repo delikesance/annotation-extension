@@ -38,6 +38,19 @@
       return false;
     }
 
+    if (message.action === 'GET_RAIL_STATE') {
+      sendResponse({ success: true, state: window.AnnotatorUI && window.AnnotatorUI.host ? window.AnnotatorUI.buildRailState() : null });
+      return false;
+    }
+
+    if (message.action === 'RAIL_ACTION') {
+      if (window.AnnotatorUI) {
+        window.AnnotatorUI.handleRailAction(message.op, message.index);
+      }
+      sendResponse({ success: true });
+      return false;
+    }
+
     if (message.action === 'UPDATE_AVAILABLE') {
       if (window.AnnotatorUI && window.AnnotatorUI.showUpdateBadge) {
         window.AnnotatorUI.showUpdateBadge(message.update);
