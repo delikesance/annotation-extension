@@ -126,7 +126,7 @@ test('Real Browser End-to-End: Full Annotation Lifecycle in Chromium with Bottom
 
     await page.waitForTimeout(100);
 
-    // 4. Verify HUD Position at Bottom-Center
+    // 4. Verify HUD starts as a pill docked at the bottom (page stays fully reachable)
     const hudPosition = await page.evaluate(() => {
       const root = document.getElementById('ai-web-annotator-root');
       const hud = root.shadowRoot.querySelector('.ai-annotator-hud');
@@ -210,7 +210,7 @@ test('Real Browser End-to-End: Full Annotation Lifecycle in Chromium with Bottom
       const root = document.getElementById('ai-web-annotator-root');
       return root.shadowRoot.querySelector('.ai-annotator-hud').classList.contains('ai-hud-collapsed');
     });
-    assert.equal(isCollapsed, true, 'HUD must toggle to collapsed state');
+    assert.equal(isCollapsed, false, 'HUD (collapsed pill by default) must expand into the review rail');
 
     // Restore HUD
     await page.evaluate(() => {

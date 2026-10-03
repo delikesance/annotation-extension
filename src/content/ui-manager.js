@@ -5,6 +5,30 @@
  * and Multi-Page user journey sessions.
  */
 
+const ANNOTATION_TYPES = { style: 'Style', bug: 'Bug', text: 'Texte' };
+
+/**
+ * Local heuristics behind the comment popover's suggestions. They are the seam
+ * where a semantic model (e.g. a TypeSafe Choice for the type, a Noul for
+ * "too vague") can later replace the keyword rules without touching the UI.
+ */
+const AnnotationInsights = {
+  suggestType(comment) {
+    const c = (comment || '').toLowerCase();
+    if (/(bug|erreur|cass|ne marche|ne fonctionne|ne r[ée]agit|plante|bloqu|404|500|crash|inactif|ne s'affiche)/.test(c)) return 'bug';
+    if (/(texte|libell|reformul|traduc|faute|orthograph|titre|wording|copy|phrase|mot )/.test(c)) return 'text';
+    return 'style';
+  },
+  isVague(comment) {
+    const c = (comment || '').trim().toLowerCase();
+    if (!c) return false;
+    const words = c.split(/\s+/).length;
+    const hasSpecifics = /\d|px|rem|%|#[0-9a-f]{3,6}|[«"“].+[»"”]|\b(en|de|à|vers|par)\s+\w+/.test(c);
+    const vagueWord = /(trop|bizarre|moche|pas bien|à revoir|a revoir|améliorer|ameliorer|mieux|joli|propre)/.test(c);
+    return words <= 3 || (vagueWord && !hasSpecifics);
+  }
+};
+
 class AnnotatorUIManager {
   constructor() {
     this.host = null;
@@ -78,75 +102,115 @@ class AnnotatorUIManager {
 
   createHUD() {
     this.hud = document.createElement('div');
-    this.hud.className = 'ai-annotator-hud';
+    this.hud.className = 'ai-annotator-hud ai-hud-collapsed'; // starts as a pill so the page stays fully reachable
     this.hud.innerHTML = `
-      <div class="ai-hud-drag-handle" title="Glisser pour déplacer le dock">
-        <svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="4" cy="3" r="1" fill="currentColor"/>
-          <circle cx="8" cy="3" r="1" fill="currentColor"/>
-          <circle cx="4" cy="7" r="1" fill="currentColor"/>
-          <circle cx="8" cy="7" r="1" fill="currentColor"/>
-          <circle cx="4" cy="11" r="1" fill="currentColor"/>
-          <circle cx="8" cy="11" r="1" fill="currentColor"/>
-        </svg>
+      <div class="ai-rail-header">
+        <div class="ai-rail-title-row">
+          <div class="ai-hud-status" id="ai-hud-status-badge">
+            <span class="ai-pulse-dot"></span>
+            <span class="ai-hud-status-text" id="ai-hud-status-text">Annotation</span>
+          </div>
+          <div class="ai-rail-tools">
+            <button class="ai-hud-btn ai-hud-btn-pause" id="ai-btn-pause" title="Mettre en pause pour naviguer librement (touche P)">
+              <span id="ai-btn-pause-text">Pause</span>
+              <span class="ai-kbd">P</span>
+            </button>
+            <button class="ai-hud-btn-icon ai-hud-btn-minimize" id="ai-btn-minimize" aria-label="Réduire ou agrandir le panneau" title="Ouvrir / réduire le panneau">
+              <svg class="ai-icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+              <span class="ai-open-label">Ouvrir</span>
+            </button>
+            <button class="ai-hud-btn-icon ai-hud-btn-close" id="ai-btn-cancel" aria-label="Quitter le mode annotation" title="Quitter le mode annotation (Échap)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="ai-hud-counter" id="ai-counter">0 annotation</div>
       </div>
-      <div class="ai-hud-status" id="ai-hud-status-badge">
-        <span class="ai-pulse-dot"></span>
-        <span class="ai-hud-status-text" id="ai-hud-status-text">Page Figée</span>
+      <div class="ai-rail-list" id="ai-rail-list"></div>
+      <div class="ai-rail-footer">
+        <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Exporter les annotations (Ctrl+E)">
+          <span>Exporter la session</span>
+          <span class="ai-kbd">Ctrl E</span>
+        </button>
+        <button class="ai-hud-btn ai-hud-btn-next" id="ai-btn-next-screen" title="Valider cet écran et passer au suivant (touche N)">
+          <span>Écran suivant</span>
+          <span class="ai-kbd">N</span>
+        </button>
       </div>
-      <div class="ai-hud-counter" id="ai-counter">0 annotation</div>
-      <button class="ai-hud-btn ai-hud-btn-pause" id="ai-btn-pause" title="Mettre en pause pour interagir / naviguer librement (Touche P)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-          <rect x="6" y="4" width="4" height="16" rx="1"/>
-          <rect x="14" y="4" width="4" height="16" rx="1"/>
-        </svg>
-        <span id="ai-btn-pause-text">Pause</span>
-      </button>
-      <button class="ai-hud-btn ai-hud-btn-next" id="ai-btn-next-screen" title="Valider cet écran et passer au suivant (Touche N)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-          <circle cx="12" cy="13" r="4"></circle>
-        </svg>
-        <span>Écran Suivant</span>
-      </button>
-      <div class="ai-hud-shortcuts-hint" title="Raccourcis : P (Pause/Reprendre), N (Écran Suivant), Ctrl+E (Exporter), Échap (Quitter)">
-        <span>⚡ P / N / Ctrl+E</span>
-      </div>
-      <button class="ai-hud-btn ai-hud-btn-primary" id="ai-btn-export" title="Exporter les annotations (Ctrl+E)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-        <span>Exporter</span>
-      </button>
-      <button class="ai-hud-btn-icon ai-hud-btn-minimize" id="ai-btn-minimize" title="Réduire / Agrandir le dock">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="4 14 10 14 10 20"></polyline>
-          <polyline points="20 10 14 10 14 4"></polyline>
-        </svg>
-      </button>
-      <button class="ai-hud-btn-icon ai-hud-btn-close" id="ai-btn-cancel" title="Quitter le mode annotation (Échap)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
     `;
 
     this.hud.querySelector('#ai-btn-pause').addEventListener('click', () => this.togglePause());
     this.hud.querySelector('#ai-btn-next-screen').addEventListener('click', () => this.nextScreen());
     this.hud.querySelector('#ai-btn-export').addEventListener('click', () => this.finishAndShowExportModal());
     this.hud.querySelector('#ai-btn-cancel').addEventListener('click', () => this.deactivate());
+    this.hud.querySelector('#ai-btn-minimize').addEventListener('click', () => {
+      this.hud.classList.toggle('ai-hud-collapsed');
+    });
 
-    const minBtn = this.hud.querySelector('#ai-btn-minimize');
-    if (minBtn) {
-      minBtn.addEventListener('click', () => {
-        this.hud.classList.toggle('ai-hud-collapsed');
-      });
+    this.shadow.appendChild(this.hud);
+    this.renderRail();
+    this.checkUpdateStatus();
+  }
+
+  /** Rebuilds the annotation list shown in the rail. */
+  renderRail() {
+    const list = this.hud && this.hud.querySelector('#ai-rail-list');
+    if (!list) return;
+
+    list.textContent = '';
+    const previous = (this.session && this.session.pages) ? this.session.pages.length : 0;
+    if (previous > 0) {
+      const note = document.createElement('div');
+      note.className = 'ai-rail-previous';
+      note.textContent = `${previous} écran${previous > 1 ? 's' : ''} déjà capturé${previous > 1 ? 's' : ''}`;
+      list.appendChild(note);
     }
 
-    this.setupHudDragging();
-    this.shadow.appendChild(this.hud);
-    this.checkUpdateStatus();
+    const pending = this.annotations.filter(a => a.metadata || a.comment !== undefined);
+    if (pending.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'ai-rail-empty';
+      empty.textContent = 'Cliquez un élément de la page pour ajouter un repère.';
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const ann of pending) {
+      const type = ANNOTATION_TYPES[ann.type] ? ann.type : 'style';
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'ai-rail-item';
+
+      const pin = document.createElement('span');
+      pin.className = 'ai-rail-pin';
+      pin.textContent = ann.index;
+
+      const body = document.createElement('span');
+      body.className = 'ai-rail-item-body';
+
+      const tag = document.createElement('span');
+      tag.className = `ai-type-tag ai-type-${type}`;
+      tag.textContent = ANNOTATION_TYPES[type];
+
+      const text = document.createElement('span');
+      text.className = 'ai-rail-item-text' + (ann.comment ? '' : ' is-empty');
+      text.textContent = ann.comment || '(Aucun commentaire)';
+
+      const sel = document.createElement('span');
+      sel.className = 'ai-rail-item-sel';
+      sel.textContent = (ann.metadata && ann.metadata.element && ann.metadata.element.cssSelector)
+        || ann.element.tagName.toLowerCase();
+
+      body.append(tag, text, sel);
+      item.append(pin, body);
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!this.isInspecting) return;
+        this.selectedAnnotation = ann;
+        this.openCommentModal(ann);
+      });
+      list.appendChild(item);
+    }
   }
 
   async checkUpdateStatus() {
@@ -169,7 +233,6 @@ class AnnotatorUIManager {
       updateBtn.id = 'ai-btn-update';
       updateBtn.title = `Nouvelle version v${update.version} disponible ! Cliquez pour voir ou télécharger.`;
       updateBtn.innerHTML = `
-        <span class="ai-update-sparkle">✨</span>
         <span class="ai-update-tag">MàJ v${update.version}</span>
       `;
       updateBtn.addEventListener('click', (e) => {
@@ -197,22 +260,22 @@ class AnnotatorUIManager {
       <div class="ai-update-modal-card">
         <div class="ai-update-modal-header">
           <div class="ai-update-header-title">
-            <span class="ai-update-badge-icon">✨</span>
+            
             <div>
-              <h3 style="margin:0;font-size:15px;font-weight:700;color:#f8fafc;">Mise à jour disponible</h3>
-              <p style="margin:2px 0 0;font-size:12px;color:#94a3b8;">Version v${String(update.version || update.tagName).replace(/^v/, '')}</p>
+              <h3 style="margin:0;font-size:15px;font-weight:700;color:#1C1B19;">Mise à jour disponible</h3>
+              <p style="margin:2px 0 0;font-size:12px;color:#5F5B54;">Version v${String(update.version || update.tagName).replace(/^v/, '')}</p>
             </div>
           </div>
           <button class="ai-update-close-btn" id="ai-update-close" title="Fermer">✕</button>
         </div>
         <div class="ai-update-modal-body">
-          <p style="margin:0 0 10px;font-size:13px;color:#cbd5e1;line-height:1.5;">
+          <p style="margin:0 0 10px;font-size:13px;color:#3a3835;line-height:1.5;">
             Une nouvelle version de <strong>AI Web Annotator</strong> est disponible sur Forgejo !
           </p>
           ${update.releaseNotes ? `
             <div class="ai-update-notes">
-              <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">Notes de version :</div>
-              <pre style="margin:0;font-size:12px;color:#e2e8f0;white-space:pre-wrap;font-family:inherit;">${this.escapeHtml(update.releaseNotes)}</pre>
+              <div style="font-size:11px;font-weight:600;color:#5F5B54;text-transform:uppercase;margin-bottom:4px;">Notes de version :</div>
+              <pre style="margin:0;font-size:12px;color:#1C1B19;white-space:pre-wrap;font-family:inherit;">${this.escapeHtml(update.releaseNotes)}</pre>
             </div>
           ` : ''}
         </div>
@@ -258,50 +321,6 @@ class AnnotatorUIManager {
     this.shadow.appendChild(backdrop);
   }
 
-  setupHudDragging() {
-    const handle = this.hud.querySelector('.ai-hud-drag-handle');
-    if (!handle) return;
-
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
-    let initialLeft = 0;
-    let initialTop = 0;
-
-    handle.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      const rect = this.hud.getBoundingClientRect();
-      initialLeft = rect.left;
-      initialTop = rect.top;
-      this.hud.style.transform = 'none';
-      this.hud.style.bottom = 'auto';
-      this.hud.style.left = `${initialLeft}px`;
-      this.hud.style.top = `${initialTop}px`;
-      this.hud.classList.add('ai-hud-is-dragging');
-      e.preventDefault();
-      e.stopPropagation();
-    });
-
-    window.addEventListener('mousemove', (e) => {
-      if (!isDragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      const winW = typeof window !== 'undefined' ? window.innerWidth : 1024;
-      const winH = typeof window !== 'undefined' ? window.innerHeight : 768;
-      this.hud.style.left = `${Math.max(10, Math.min(winW - (this.hud.offsetWidth || 300) - 10, initialLeft + dx))}px`;
-      this.hud.style.top = `${Math.max(10, Math.min(winH - (this.hud.offsetHeight || 50) - 10, initialTop + dy))}px`;
-    }, true);
-
-    window.addEventListener('mouseup', () => {
-      if (isDragging) {
-        isDragging = false;
-        this.hud.classList.remove('ai-hud-is-dragging');
-      }
-    }, true);
-  }
-
   updateCounter() {
     const counter = this.shadow.getElementById('ai-counter');
     if (!counter) return;
@@ -318,6 +337,7 @@ class AnnotatorUIManager {
     } else {
       counter.textContent = `${totalCount} annotation${totalCount > 1 ? 's' : ''}`;
     }
+    this.renderRail();
   }
 
   activate() {
@@ -345,7 +365,7 @@ class AnnotatorUIManager {
     this.host.style.display = 'block';
     this.updateHUDState();
     this.checkUpdateStatus();
-    this.showToast('🎯 Mode Annotation activé : Cliquez sur un élément pour annoter.');
+    this.showToast('Mode Annotation activé : Cliquez sur un élément pour annoter.');
   }
 
   togglePause() {
@@ -377,7 +397,7 @@ class AnnotatorUIManager {
 
     this.updateHUDState();
     this.syncSessionToStorage();
-    this.showToast('⏸️ Mode Pause activé : Vous pouvez interagir et naviguer librement.');
+    this.showToast('Mode Pause activé : Vous pouvez interagir et naviguer librement.');
   }
 
   resume() {
@@ -391,12 +411,12 @@ class AnnotatorUIManager {
 
     this.updateHUDState();
     this.syncSessionToStorage();
-    this.showToast('🎯 Mode Annotation réactivé : Cliquez sur un élément pour annoter.');
+    this.showToast('Mode Annotation réactivé : Cliquez sur un élément pour annoter.');
   }
 
   async nextScreen() {
     if (this.annotations.length === 0) {
-      this.showToast('⚠️ Ajoutez au moins une annotation sur cet écran avant de passer au suivant.');
+      this.showToast('Ajoutez au moins une annotation sur cet écran avant de passer au suivant.');
       return;
     }
 
@@ -404,7 +424,7 @@ class AnnotatorUIManager {
       this.closeCommentModal();
     }
 
-    this.showToast('📸 Capture et validation de l\'écran...');
+    this.showToast('Capture et validation de l\'écran...');
 
     if (this.hud) this.hud.style.display = 'none';
     if (this.highlightBox) this.highlightBox.style.display = 'none';
@@ -437,6 +457,7 @@ class AnnotatorUIManager {
       annotations: this.annotations.map(a => ({
         index: a.index,
         comment: a.comment,
+        type: a.type || 'style',
         metadata: a.metadata || { element: { tag: a.element.tagName } }
       }))
     });
@@ -454,7 +475,7 @@ class AnnotatorUIManager {
 
     this.updateCounter();
     this.syncSessionToStorage();
-    this.showToast(`📸 Écran #${stepIndex} validé ! Naviguez librement et reprenez (P) pour l'écran #${stepIndex + 1}.`);
+    this.showToast(`Écran #${stepIndex} validé ! Naviguez librement et reprenez (P) pour l'écran #${stepIndex + 1}.`);
   }
 
   updateHUDState() {
@@ -468,29 +489,18 @@ class AnnotatorUIManager {
     if (this.isPaused) {
       this.hud.classList.add('ai-hud-paused');
       if (statusBadge) statusBadge.classList.add('is-paused');
-      if (statusText) statusText.textContent = 'En Pause (Libre)';
+      if (statusText) statusText.textContent = 'En pause';
       if (pauseBtn) {
         pauseBtn.classList.add('is-paused');
-        pauseBtn.innerHTML = `
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          <span>Reprendre</span>
-        `;
+        pauseBtn.innerHTML = `<span id="ai-btn-pause-text">Reprendre</span><span class="ai-kbd">P</span>`;
       }
     } else {
       this.hud.classList.remove('ai-hud-paused');
       if (statusBadge) statusBadge.classList.remove('is-paused');
-      if (statusText) statusText.textContent = 'Page Figée';
+      if (statusText) statusText.textContent = 'Annotation';
       if (pauseBtn) {
         pauseBtn.classList.remove('is-paused');
-        pauseBtn.innerHTML = `
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <rect x="6" y="4" width="4" height="16" rx="1"/>
-            <rect x="14" y="4" width="4" height="16" rx="1"/>
-          </svg>
-          <span>Pause</span>
-        `;
+        pauseBtn.innerHTML = `<span id="ai-btn-pause-text">Pause</span><span class="ai-kbd">P</span>`;
       }
     }
 
@@ -515,7 +525,7 @@ class AnnotatorUIManager {
     }
 
     this.updateCounter();
-    this.showToast(`🌐 Étape #${this.session.pages.length + 1} de la session : ${document.title}`);
+    this.showToast(`Étape #${this.session.pages.length + 1} de la session : ${document.title}`);
   }
 
   async syncSessionToStorage() {
@@ -813,11 +823,11 @@ class AnnotatorUIManager {
           <polygon points="0 0, 9 3.5, 0 7" fill="#ffffff" />
         </marker>
         <marker id="${markerId}" markerWidth="8" markerHeight="8" refX="6.5" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#4f46e5" />
+          <polygon points="0 0, 8 3, 0 6" fill="#C9400F" />
         </marker>
       </defs>
       <line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}" stroke="#ffffff" stroke-width="5" stroke-linecap="round" marker-end="url(#${markerIdWhite})" />
-      <line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}" stroke="#4f46e5" stroke-width="2.5" stroke-linecap="round" marker-end="url(#${markerId})" />
+      <line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}" stroke="#C9400F" stroke-width="2.5" stroke-linecap="round" marker-end="url(#${markerId})" />
     `;
 
     return svg;
@@ -847,8 +857,8 @@ class AnnotatorUIManager {
     let modalTop = badgeTop + 24;
     let modalLeft = badgeLeft + 16;
 
-    if (rect.left + 360 > viewportWidth) {
-      modalLeft = Math.max(scrollX + 16, scrollX + viewportWidth - 360);
+    if (modalLeft - scrollX + 380 > viewportWidth - 16) {
+      modalLeft = Math.max(scrollX + 16, scrollX + viewportWidth - 380 - 16);
     }
     if (rect.top + 220 > viewportHeight && rect.top > 180) {
       modalTop = Math.max(scrollY + 16, badgeTop - 190);
@@ -861,14 +871,19 @@ class AnnotatorUIManager {
     card.innerHTML = `
       <div class="ai-comment-header">
         <div class="ai-comment-title">
-          <span>Point #${annotation.index}</span>
+          <span>Repère ${annotation.index}</span>
           <span class="ai-comment-tag">&lt;${tagStr}&gt;</span>
         </div>
-        <div class="ai-comment-shortcut-badge">Ctrl+Entrée</div>
+        <div class="ai-comment-shortcut-badge">Échap pour annuler</div>
       </div>
-      <textarea class="ai-comment-textarea" placeholder="Indiquez ce que l'IA doit analyser, modifier ou corriger sur cet élément...">${annotation.comment || ''}</textarea>
+      <textarea class="ai-comment-textarea" aria-label="Ce qui doit changer" placeholder="Indiquez ce que l'IA doit analyser, modifier ou corriger sur cet élément...">${this.escapeHtml(annotation.comment || '')}</textarea>
+      <div class="ai-comment-types" role="group" aria-label="Type d'annotation">
+        <span class="ai-comment-types-label">Type</span>
+        ${Object.entries(ANNOTATION_TYPES).map(([key, label]) => `<button type="button" class="ai-type-chip ai-type-${key}" data-type="${key}">${label}</button>`).join('')}
+      </div>
+      <div class="ai-comment-nudge" role="status"><b>Précisez :</b><span>Quelle valeur cible, sur quel écran ou dans quel état ?</span></div>
       <div class="ai-comment-footer">
-        <span class="ai-comment-hint">⚡ Entrée ou Ctrl+Entrée pour valider</span>
+        <span class="ai-comment-hint">Entrée pour valider</span>
         <div class="ai-comment-actions">
           <button class="ai-btn-sm ai-btn-delete" id="ai-modal-delete">${isNew ? 'Annuler' : 'Supprimer'}</button>
           <button class="ai-btn-sm ai-btn-save" id="ai-modal-save">Enregistrer</button>
@@ -880,9 +895,29 @@ class AnnotatorUIManager {
     const saveBtn = card.querySelector('#ai-modal-save');
     const deleteBtn = card.querySelector('#ai-modal-delete');
 
+    const nudge = card.querySelector('.ai-comment-nudge');
+    const chips = card.querySelectorAll('.ai-type-chip');
+    let chosenType = annotation.type || null; // null until the user picks one manually
+    const paintType = (type) => chips.forEach(c => {
+      const on = c.getAttribute('data-type') === type;
+      c.classList.toggle('active', on);
+      c.setAttribute('aria-pressed', String(on));
+    });
+    const refreshInsights = () => {
+      if (!chosenType) paintType(AnnotationInsights.suggestType(textarea.value));
+      nudge.classList.toggle('visible', AnnotationInsights.isVague(textarea.value));
+    };
+    chips.forEach(chip => chip.addEventListener('click', () => {
+      chosenType = chip.getAttribute('data-type');
+      paintType(chosenType);
+    }));
+    textarea.addEventListener('input', refreshInsights);
+    refreshInsights();
+
     const saveAction = () => {
       const text = textarea.value.trim();
       annotation.comment = text;
+      annotation.type = chosenType || AnnotationInsights.suggestType(text);
 
       if (typeof window !== 'undefined' && window.SelectorGenerator) {
         annotation.metadata = window.SelectorGenerator.getElementMetadata(
@@ -904,7 +939,7 @@ class AnnotatorUIManager {
         chrome.runtime.sendMessage({
           action: 'SET_BADGE',
           text: String(this.annotations.length),
-          color: '#4f46e5'
+          color: '#C9400F'
         }).catch(() => {});
       }
     };
@@ -974,7 +1009,7 @@ class AnnotatorUIManager {
       chrome.runtime.sendMessage({
         action: 'SET_BADGE',
         text: this.annotations.length > 0 ? String(this.annotations.length) : '',
-        color: '#4f46e5'
+        color: '#C9400F'
       }).catch(() => {});
     }
   }
@@ -1022,7 +1057,7 @@ class AnnotatorUIManager {
     const hasPrevious = this.session && this.session.pages && this.session.pages.length > 0;
 
     if (!hasCurrent && !hasPrevious) {
-      this.showToast('⚠️ Aucune annotation enregistrée. Cliquez d\'abord sur un élément pour annoter.');
+      this.showToast('Aucune annotation enregistrée. Cliquez d\'abord sur un élément pour annoter.');
       return;
     }
 
@@ -1030,7 +1065,7 @@ class AnnotatorUIManager {
       this.closeCommentModal();
     }
 
-    this.showToast('📸 Préparation de l\'exportation...');
+    this.showToast('Préparation de l\'exportation...');
 
     this.hud.style.display = 'none';
     this.highlightBox.style.display = 'none';
@@ -1059,6 +1094,7 @@ class AnnotatorUIManager {
           annotations: this.annotations.map(a => ({
             index: a.index,
             comment: a.comment,
+            type: a.type || 'style',
             metadata: a.metadata || { element: { tag: a.element.tagName } }
           }))
         });
@@ -1108,6 +1144,7 @@ class AnnotatorUIManager {
       (page.annotations || []).forEach((a) => {
         const meta = a.metadata ? a.metadata.element : {};
         prompt += `\n#### [Point #${a.index}]\n`;
+        prompt += `- **Type** : ${ANNOTATION_TYPES[a.type] || 'Style'}\n`;
         prompt += `- **Demande / Problème** : ${a.comment || '(Aucun commentaire)'}\n`;
         prompt += `- **Élément Cible** : \`<${meta.tag ? meta.tag.toLowerCase() : 'element'}>\`\n`;
         if (meta.cssSelector) prompt += `- **Sélecteur CSS** : \`${meta.cssSelector}\`\n`;
@@ -1182,17 +1219,20 @@ class AnnotatorUIManager {
       agent: {
         name: 'Agent IA',
         ctaMain: "Copier pour l'Agent IA",
-        ctaSub: 'Prompt structuré avec sélecteurs & contexte'
+        ctaSub: 'Prompt structuré avec sélecteurs & contexte',
+        desc: 'Prompt + contexte DOM'
       },
       github: {
         name: 'GitHub Issue',
         ctaMain: 'Copier pour GitHub Issue',
-        ctaSub: 'Markdown prêt à coller dans une issue'
+        ctaSub: 'Markdown prêt à coller dans une issue',
+        desc: 'Markdown prêt à coller'
       },
       json: {
         name: 'JSON',
         ctaMain: 'Copier le JSON',
-        ctaSub: 'Données brutes structurées'
+        ctaSub: 'Données brutes structurées',
+        desc: 'Données structurées'
       }
     };
 
@@ -1200,110 +1240,93 @@ class AnnotatorUIManager {
 
     const modal = document.createElement('div');
     modal.className = 'ai-export-backdrop';
+    const fmtTab = (key) => `
+      <button class="ai-format-tab ${this.currentExportFormat === key ? 'active' : ''}" data-format="${key}" aria-pressed="${this.currentExportFormat === key}">
+        <span class="ai-format-name">${formatConfigs[key].name}</span>
+        <span class="ai-format-desc">${formatConfigs[key].desc}</span>
+      </button>`;
+
     modal.innerHTML = `
-      <div class="ai-export-dialog">
+      <div class="ai-export-dialog" role="dialog" aria-modal="true" aria-label="Exporter la session">
         <div class="ai-export-header">
           <div class="ai-export-title-group">
-            <h3 class="ai-export-title">Exporter les annotations</h3>
+            <h3 class="ai-export-title">Exporter la session</h3>
             <span class="ai-export-badge">${totalPoints} annotation${totalPoints > 1 ? 's' : ''}${isMultiScreen ? ` • ${pages.length} écrans` : ''}</span>
           </div>
-          <button class="ai-export-close-btn" id="ai-modal-close" title="Fermer (Échap)">✕</button>
+          <button class="ai-export-close-btn" id="ai-modal-close" aria-label="Fermer" title="Fermer (Échap)">✕</button>
         </div>
 
         <div class="ai-export-body">
-          ${isMultiScreen ? `
-            <div class="ai-export-screens-nav">
-              <span class="ai-export-screens-label">Écrans capturés :</span>
-              <div class="ai-export-screens-tabs" id="ai-screens-tabs">
-                ${pages.map((p, idx) => `
-                  <button class="ai-screen-tab ${idx === selectedPageIndex ? 'active' : ''}" data-page-index="${idx}">
-                    <span class="ai-screen-tab-title">Écran ${p.stepIndex}</span>
-                    <span class="ai-screen-tab-badge">${(p.annotations || []).length} ann.</span>
-                  </button>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
-
-          <div class="ai-export-preview-container">
-            <img class="ai-export-thumbnail" id="ai-export-thumb" src="${activePage.dataUrl}" alt="Aperçu capture annotée" />
-            <div class="ai-export-preview-overlay">
-              <span class="ai-export-preview-tag" id="ai-preview-tag">✓ Capture ${isMultiScreen ? `Écran #${activePage.stepIndex}` : 'avec repères'}</span>
-            </div>
-          </div>
-
-          <div class="ai-export-format-selector">
-            <button class="ai-format-tab ${this.currentExportFormat === 'agent' ? 'active' : ''}" data-format="agent">🤖 Agent IA</button>
-            <button class="ai-format-tab ${this.currentExportFormat === 'github' ? 'active' : ''}" data-format="github">🐙 GitHub Issue</button>
-            <button class="ai-format-tab ${this.currentExportFormat === 'json' ? 'active' : ''}" data-format="json">📊 JSON</button>
-          </div>
-
-          <!-- Primary Mode-Specific Action (Single Dominant CTA) -->
-          <div class="ai-export-primary-action-wrap">
-            <button class="ai-export-primary-btn" id="ai-btn-primary-action" title="Copier le contenu formaté dans le presse-papier">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-              </svg>
-              <div class="ai-action-text-group">
-                <span class="ai-action-main-text" id="ai-primary-cta-title">${currentConfig.ctaMain}</span>
-                <span class="ai-action-sub-text" id="ai-primary-cta-sub">${currentConfig.ctaSub}</span>
-              </div>
-            </button>
-          </div>
-
-          <!-- Secondary Tools Row -->
-          <div class="ai-export-secondary-tools">
-            <button class="ai-export-sub-btn" id="ai-btn-copy-image" title="Copier l'image de l'écran affiché dans le presse-papier">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-              </svg>
-              <span id="ai-copy-img-text">${isMultiScreen ? `Copier écran #${activePage.stepIndex}` : "Copier l'image"}</span>
-            </button>
-
+          <div class="ai-export-main">
             ${isMultiScreen ? `
-              <button class="ai-export-sub-btn" id="ai-btn-dl-all-png" title="Télécharger toutes les captures PNG de la session">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                <span>📥 Tout télécharger (${pages.length})</span>
-              </button>
+              <div class="ai-export-screens-nav">
+                <span class="ai-export-screens-label">Écrans capturés</span>
+                <div class="ai-export-screens-tabs" id="ai-screens-tabs">
+                  ${pages.map((p, idx) => `
+                    <button class="ai-screen-tab ${idx === selectedPageIndex ? 'active' : ''}" data-page-index="${idx}">
+                      <span class="ai-screen-tab-title">Écran ${p.stepIndex}</span>
+                      <span class="ai-screen-tab-badge">${(p.annotations || []).length} ann.</span>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
             ` : ''}
 
-            <button class="ai-export-sub-btn" id="ai-btn-dl-png" title="Enregistrer l'image PNG affichée">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              <span id="ai-dl-png-text">${isMultiScreen ? `Télécharger écran #${activePage.stepIndex}` : 'Télécharger PNG'}</span>
-            </button>
+            <div class="ai-export-preview-container">
+              <img class="ai-export-thumbnail" id="ai-export-thumb" src="${activePage.dataUrl}" alt="Aperçu de la capture annotée" />
+              <div class="ai-export-preview-overlay">
+                <span class="ai-export-preview-tag" id="ai-preview-tag">${isMultiScreen ? `Aperçu · écran #${activePage.stepIndex}` : 'Aperçu avec repères'}</span>
+              </div>
+            </div>
 
-            <button class="ai-export-sub-btn" id="ai-btn-dl-json" title="Enregistrer JSON">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="16 18 22 12 16 6"></polyline>
-                <polyline points="8 6 2 12 8 18"></polyline>
-              </svg>
-              <span>Télécharger JSON</span>
-            </button>
+            <details class="ai-export-prompt-details" id="ai-prompt-details">
+              <summary class="ai-export-prompt-summary">
+                <span class="ai-summary-label">
+                  <svg class="ai-summary-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                  <span>Voir le contenu généré (<strong id="ai-prompt-format-name">${currentConfig.name}</strong>)</span>
+                </span>
+              </summary>
+              <pre class="ai-export-prompt-pre" id="ai-prompt-preview">${this.escapeHtml(promptText)}</pre>
+            </details>
           </div>
 
-          <!-- Collapsible Prompt Accordion -->
-          <details class="ai-export-prompt-details" id="ai-prompt-details">
-            <summary class="ai-export-prompt-summary">
-              <span class="ai-summary-label">
-                <svg class="ai-summary-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-                <span>Voir le prompt généré (<strong id="ai-prompt-format-name">${currentConfig.name}</strong>)</span>
-              </span>
-            </summary>
-            <pre class="ai-export-prompt-pre" id="ai-prompt-preview">${this.escapeHtml(promptText)}</pre>
-          </details>
+          <div class="ai-export-side">
+            <span class="ai-eyebrow">Destination</span>
+            <div class="ai-export-format-selector">
+              ${fmtTab('agent')}${fmtTab('github')}${fmtTab('json')}
+            </div>
+
+            <div class="ai-export-primary-action-wrap">
+              <button class="ai-export-primary-btn" id="ai-btn-primary-action" title="Copier le contenu formaté dans le presse-papier">
+                ${this.svgIcon('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>', 20)}
+                <div class="ai-action-text-group">
+                  <span class="ai-action-main-text" id="ai-primary-cta-title">${currentConfig.ctaMain}</span>
+                  <span class="ai-action-sub-text" id="ai-primary-cta-sub">${currentConfig.ctaSub}</span>
+                </div>
+              </button>
+            </div>
+
+            <div class="ai-export-secondary-tools">
+              <button class="ai-export-sub-btn" id="ai-btn-copy-image" title="Copier l'image de l'écran affiché dans le presse-papier">
+                ${this.svgIcon('<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>')}
+                <span id="ai-copy-img-text">${isMultiScreen ? `Copier écran #${activePage.stepIndex}` : "Copier l'image"}</span>
+              </button>
+              <button class="ai-export-sub-btn" id="ai-btn-dl-png" title="Enregistrer l'image PNG affichée">
+                ${this.svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>')}
+                <span id="ai-dl-png-text">${isMultiScreen ? `Télécharger écran #${activePage.stepIndex}` : 'Télécharger PNG'}</span>
+              </button>
+              ${isMultiScreen ? `
+                <button class="ai-export-sub-btn" id="ai-btn-dl-all-png" title="Télécharger toutes les captures PNG de la session">
+                  ${this.svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>')}
+                  <span>Tout télécharger (${pages.length})</span>
+                </button>
+              ` : ''}
+              <button class="ai-export-sub-btn" id="ai-btn-dl-json" title="Enregistrer JSON">
+                ${this.svgIcon('<polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline>')}
+                <span>Télécharger JSON</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="ai-export-footer">
@@ -1365,7 +1388,7 @@ class AnnotatorUIManager {
         activePage = pages[selectedPageIndex] || pages[0];
 
         if (thumbImg) thumbImg.src = activePage.dataUrl;
-        if (previewTag) previewTag.textContent = `✓ Capture Écran #${activePage.stepIndex}`;
+        if (previewTag) previewTag.textContent = `Aperçu · écran #${activePage.stepIndex}`;
         if (copyImgText) copyImgText.textContent = `Copier écran #${activePage.stepIndex}`;
         if (dlPngText) dlPngText.textContent = `Télécharger écran #${activePage.stepIndex}`;
       });
@@ -1434,6 +1457,10 @@ class AnnotatorUIManager {
     this.activeExportModal = modal;
   }
 
+  svgIcon(inner, size = 14) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+  }
+
   async copyImageToClipboard(dataUrl, btn) {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       try {
@@ -1443,8 +1470,8 @@ class AnnotatorUIManager {
           dataUrl: dataUrl
         });
         if (res && res.success) {
-          this.markButtonSuccess(btn, '✅ Image copiée !');
-          this.showToast('✅ Image copiée dans le presse-papier (Ctrl+V) !');
+          this.markButtonSuccess(btn, 'Image copiée');
+          this.showToast('Image copiée dans le presse-papier (Ctrl+V) !');
           return;
         }
       } catch (_) {}
@@ -1460,15 +1487,15 @@ class AnnotatorUIManager {
         await nav.clipboard.write([
           new ClipboardItem({ 'image/png': pngBlob })
         ]);
-        this.markButtonSuccess(btn, '✅ Image copiée !');
-        this.showToast('✅ Image copiée ! Vous pouvez la coller dans votre IA (Ctrl+V).');
+        this.markButtonSuccess(btn, 'Image copiée');
+        this.showToast('Image copiée ! Vous pouvez la coller dans votre IA (Ctrl+V).');
         return;
       }
       throw new Error('Clipboard write not supported');
     } catch (err) {
       console.warn('[AI Web Annotator] Image clipboard write fallback to download:', err);
       await this.downloadPNG(dataUrl);
-      this.showToast('💾 Image téléchargée.');
+      this.showToast('Image téléchargée.');
     }
   }
 
@@ -1481,8 +1508,8 @@ class AnnotatorUIManager {
           text: promptText
         });
         if (res && res.success) {
-          this.markButtonSuccess(btn, '✅ Prompt copié !');
-          this.showToast('✅ Prompt IA copié dans le presse-papier !');
+          this.markButtonSuccess(btn, 'Prompt copié');
+          this.showToast('Prompt IA copié dans le presse-papier !');
           return;
         }
       } catch (_) {}
@@ -1495,12 +1522,12 @@ class AnnotatorUIManager {
       } else {
         this.fallbackCopyText(promptText);
       }
-      this.markButtonSuccess(btn, '✅ Prompt copié !');
-      this.showToast('✅ Prompt IA copié dans le presse-papier !');
+      this.markButtonSuccess(btn, 'Prompt copié');
+      this.showToast('Prompt IA copié dans le presse-papier !');
     } catch (err) {
       this.fallbackCopyText(promptText);
-      this.markButtonSuccess(btn, '✅ Prompt copié !');
-      this.showToast('✅ Prompt IA copié dans le presse-papier !');
+      this.markButtonSuccess(btn, 'Prompt copié');
+      this.showToast('Prompt IA copié dans le presse-papier !');
     }
   }
 
@@ -1527,7 +1554,7 @@ class AnnotatorUIManager {
         filename: filename
       });
     }
-    this.showToast('💾 Capture PNG téléchargée.');
+    this.showToast('Capture PNG téléchargée.');
   }
 
   async downloadAllPNG(pages = []) {
@@ -1535,7 +1562,7 @@ class AnnotatorUIManager {
     const hostname = window.location.hostname.replace(/[^a-z0-9]/gi, '_') || 'page';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
-    this.showToast(`📥 Téléchargement de ${pages.length} image(s) en cours...`);
+    this.showToast(`Téléchargement de ${pages.length} image(s) en cours...`);
 
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
@@ -1557,7 +1584,7 @@ class AnnotatorUIManager {
       }
     }
 
-    this.showToast(`✅ ${pages.length} capture(s) PNG téléchargées !`);
+    this.showToast(`${pages.length} capture(s) PNG téléchargées !`);
   }
 
   async downloadJSON(payload) {
@@ -1572,7 +1599,7 @@ class AnnotatorUIManager {
         filename: `annotation-context-${hostname}-${timestamp}.json`
       });
     }
-    this.showToast('📄 Données JSON téléchargées.');
+    this.showToast('Données JSON téléchargées.');
   }
 
   fallbackCopyText(text) {
